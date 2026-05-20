@@ -1,8 +1,8 @@
 {
   "id": "clawmem",
   "name": "ClawMem",
-  "version": "0.1.19",
-  "description": "Repo-backed long-term memory plugin for OpenClaw with auto recall, durable memory capture, and conversation mirroring.",
+  "version": "0.1.18",
+  "description": "GitHub-native ClawMem runtime for OpenClaw with mandatory transcript mirroring, lightweight recall, and skill-driven memory maintenance.",
   "kind": "memory",
   "skills": [
     "./skills"
@@ -43,10 +43,6 @@
               "type": "string",
               "minLength": 1
             },
-            "login": {
-              "type": "string",
-              "minLength": 1
-            },
             "defaultRepo": {
               "type": "string",
               "pattern": "^[^/]+/[^/]+$"
@@ -71,25 +67,38 @@
         "minimum": 1000,
         "maximum": 600000
       },
-      "memoryExtractWaitTimeoutMs": {
-        "type": "integer",
-        "minimum": 1000,
-        "maximum": 600000
-      },
-      "memoryRecallLimit": {
-        "type": "integer",
-        "minimum": 1,
-        "maximum": 20
-      },
       "memoryAutoRecallLimit": {
         "type": "integer",
         "minimum": 1,
         "maximum": 20
       },
-      "reviewNudgeInterval": {
+      "memoryAutoRecallStrategy": {
+        "type": "string",
+        "enum": ["single", "literal-repair", "query-planner"],
+        "default": "query-planner"
+      },
+      "memoryAutoRecallPlannerVariantLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 6,
+        "default": 6
+      },
+      "apiRequestRetries": {
         "type": "integer",
         "minimum": 0,
-        "maximum": 100
+        "maximum": 8,
+        "default": 3
+      },
+      "transcriptCommentBatchSize": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 1
+      },
+      "conversationSummaryMode": {
+        "type": "string",
+        "enum": ["llm", "placeholder"],
+        "default": "llm"
       }
     }
   },
@@ -102,7 +111,7 @@
     "defaultRepo": {
       "label": "Default Repo",
       "placeholder": "owner/repo",
-      "help": "Default memory repo for automatic flows and for tool calls that do not specify repo explicitly."
+      "help": "Default memory repo for automatic flows and skill-driven GitHub-native operations."
     },
     "repo": {
       "label": "Repository",
@@ -126,21 +135,29 @@
       "label": "Summary Wait Timeout (ms)",
       "help": "How long clawmem waits for the final conversation summary subagent during session finalization."
     },
-    "memoryExtractWaitTimeoutMs": {
-      "label": "Finalize Memory Timeout (ms)",
-      "help": "How long clawmem waits while extracting durable memory candidates during session finalization."
-    },
-    "memoryRecallLimit": {
-      "label": "Memory Recall Limit",
-      "help": "Default maximum number of active memories returned by memory recall tools."
-    },
     "memoryAutoRecallLimit": {
       "label": "Auto Recall Limit",
       "help": "Maximum number of active memories automatically injected before each turn."
     },
-    "reviewNudgeInterval": {
-      "label": "Review Nudge Interval",
-      "help": "How many user turns pass before ClawMem injects a <clawmem-review-nudge> reminder for the agent to run the review protocol. Set to 0 to disable. Default 10."
+    "memoryAutoRecallStrategy": {
+      "label": "Auto Recall Strategy",
+      "help": "Use 'query-planner' for full + focused compact/core memory searches, 'single' for one backend search, or 'literal-repair' to reserve one low-rank slot for lexical repair on date/count/name questions."
+    },
+    "memoryAutoRecallPlannerVariantLimit": {
+      "label": "Planner Variant Limit",
+      "help": "Maximum query-planner search variants to run per auto-recall. Default 6 favors recall quality and runs variants concurrently; lower to 3 for latency-sensitive use."
+    },
+    "apiRequestRetries": {
+      "label": "API Request Retries",
+      "help": "Retry transient GitHub-compatible read/search failures such as 429, 5xx, and dropped connections."
+    },
+    "transcriptCommentBatchSize": {
+      "label": "Transcript Comment Batch Size",
+      "help": "Number of normalized transcript messages per mirrored issue comment. Keep at 1 for normal operation."
+    },
+    "conversationSummaryMode": {
+      "label": "Conversation Summary Mode",
+      "help": "Use 'llm' for normal final summaries or 'placeholder' for bulk/evaluation runs that should skip summary generation."
     }
   }
 }

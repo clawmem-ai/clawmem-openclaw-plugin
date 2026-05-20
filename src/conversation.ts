@@ -4,14 +4,15 @@ import path from "node:path";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { AGENT_LABEL_PREFIX, DEFAULT_LABELS, SESSION_TITLE_PREFIX, extractLabelNames } from "./config.js";
 import type { GitHubIssueClient } from "./github-client.js";
-import { parseCandidates } from "./memory.js";
 import { normalizeMessages, readTranscriptSnapshot } from "./transcript.js";
-import type { ClawMemPluginConfig, MemoryCandidate, MemorySchema, NormalizedMessage, SessionMirrorState, TranscriptSnapshot } from "./types.js";
+import type { ClawMemPluginConfig, NormalizedMessage, SessionMirrorState, TranscriptSnapshot } from "./types.js";
 import { fmtTranscript, localDate, localDateTime, sha256, subKey } from "./utils.js";
-import { parseFlatYaml, stringifyFlatYaml } from "./yaml.js";
 
-const FINALIZE_SCHEMA_KIND_LIMIT = 24;
-const FINALIZE_SCHEMA_TOPIC_LIMIT = 80;
+export type TranscriptAppendResult = {
+  count: number;
+  complete: boolean;
+  error?: string;
+};
 
 export class ConversationMirror {
   constructor(private readonly client: GitHubIssueClient, private readonly api: OpenClawPluginApi, private readonly config: ClawMemPluginConfig) {}
@@ -20,7 +21,7 @@ export class ConversationMirror {
     if (sessionId.startsWith("slug-generator-")) return false;
     const first = messages.find((m) => m.role === "user")?.text ?? "";
     if (first.includes("generate a short 1-2 word filename slug") && first.includes("Reply with ONLY the slug")) return false;
-    if (first.includes("Write the final issue summary and extract durable memory candidates from the conversation below.")) return false;
+    if (first.includes("Write the final issue summary and title for the ClawMem conversation issue below.")) return false;
     return true;
   }
 
@@ -88,36 +89,41 @@ export class ConversationMirror {
     await this.client.syncManagedLabels(session.issueNumber, labels);
   }
 
-  async appendComments(issueNumber: number, messages: NormalizedMessage[]): Promise<number> {
+  async appendComments(issueNumber: number, messages: NormalizedMessage[], startIndex = 0): Promise<TranscriptAppendResult> {
     let count = 0;
-    for (const msg of messages) {
-      try { await this.client.createComment(issueNumber, `role: ${msg.role}\n\n${msg.text.trim()}`); count++; }
-      catch (error) { this.api.logger.warn(`clawmem: conversation comment failed: ${String(error)}`); break; }
+    for (const batch of batchTranscriptComments(messages, MAX_COMMENT_CHARS, this.config.transcriptCommentBatchSize, startIndex)) {
+      try {
+        await this.createCommentWithRetry(issueNumber, batch);
+        count += batch.count;
+      } catch (error) {
+        const message = String(error);
+        this.api.logger.warn(`clawmem: conversation comment failed: ${message}`);
+        return { count, complete: false, error: message };
+      }
     }
-    return count;
+    return { count, complete: true };
   }
 
   async generateFinalArtifacts(
     session: SessionMirrorState,
     snapshot: TranscriptSnapshot,
-    schema?: MemorySchema,
-  ): Promise<{ summary: string; title?: string; candidates: MemoryCandidate[] }> {
+  ): Promise<{ summary: string; title?: string }> {
     if (snapshot.messages.length === 0) throw new Error("no conversation messages to finalize");
     const subagent = this.api.runtime.subagent;
     const sessionKey = subKey(session, "finalize");
-    const message = buildFinalizeArtifactsPrompt(snapshot, schema);
+    const message = buildFinalizeArtifactsPrompt(snapshot);
     try {
       const run = await subagent.run({
         sessionKey,
         message,
         deliver: false,
         lane: "clawmem-finalize",
-        idempotencyKey: sha256(`${session.sessionId}:${snapshot.messages.length}:finalize-v2`),
-        extraSystemPrompt: "You finalize ClawMem conversations. Output JSON only with summary, title, and durable memory candidates. Reuse existing schema when it fits and keep human-readable memory text in the conversation language.",
+        idempotencyKey: sha256(`${session.sessionId}:${snapshot.messages.length}:finalize-v3-summary`),
+        extraSystemPrompt: "You finalize ClawMem conversations. Output JSON only with summary and title. Do not extract or write durable memories.",
       });
       const wait = await subagent.waitForRun({
         runId: run.runId,
-        timeoutMs: Math.max(this.config.summaryWaitTimeoutMs, this.config.memoryExtractWaitTimeoutMs),
+        timeoutMs: this.config.summaryWaitTimeoutMs,
       });
       if (wait.status === "timeout") throw new Error("finalize subagent timed out");
       if (wait.status === "error") throw new Error(wait.error || "finalize subagent failed");
@@ -138,11 +144,31 @@ export class ConversationMirror {
 
   private renderBody(session: SessionMirrorState, snapshot: TranscriptSnapshot, summary: string, _closed: boolean): string {
     const dates = this.resolveDates(session, snapshot.messages);
-    return stringifyFlatYaml([
-      ["type", "conversation"], ["session_id", session.sessionId], ["date", dates.date],
-      ["start_at", dates.startAt], ["end_at", dates.endAt],
-      ["summary", summary],
-    ]);
+    const lines = [
+      "## Summary",
+      "",
+      summary.trim() || "pending",
+      "",
+      "## Session",
+      "",
+      `- Session: \`${session.sessionId}\``,
+      ...(session.agentId ? [`- Agent: \`${session.agentId}\``] : []),
+      `- Date: ${dates.date}`,
+      `- Started: ${dates.startAt}`,
+      `- Updated: ${dates.endAt}`,
+      `- Mirrored messages: ${session.lastMirroredCount}`,
+      "",
+      "<!-- clawmem",
+      "schema_version: clawmem/conversation-v2",
+      "type: conversation",
+      `session_id: ${commentValue(session.sessionId)}`,
+      ...(session.agentId ? [`agent: ${commentValue(session.agentId)}`] : []),
+      `date: ${dates.date}`,
+      `start_at: ${dates.startAt}`,
+      `end_at: ${dates.endAt}`,
+      "-->",
+    ];
+    return lines.join("\n");
   }
 
   private resolveDates(session: SessionMirrorState, messages: NormalizedMessage[]): { date: string; startAt: string; endAt: string } {
@@ -192,14 +218,134 @@ export class ConversationMirror {
     session.lastMirroredCount = 0;
     session.turnCount = 0;
     session.finalizedAt = undefined;
+    session.lastMirrorError = undefined;
+    session.lastMirrorAttemptAt = undefined;
+  }
+
+  private async createCommentWithRetry(issueNumber: number, batch: TranscriptCommentBatch): Promise<void> {
+    let lastError: unknown;
+    for (const [attempt, delayMs] of COMMENT_RETRY_DELAYS_MS.entries()) {
+      if (attempt > 0) await sleep(delayMs);
+      try {
+        await this.client.createComment(issueNumber, batch.body);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (await this.commentAlreadyExists(issueNumber, batch.markers)) return;
+      }
+    }
+    throw lastError ?? new Error("comment create failed");
+  }
+
+  private async commentAlreadyExists(issueNumber: number, markers: string[]): Promise<boolean> {
+    if (markers.length === 0) return false;
+    try {
+      for (let page = 1; page <= 3; page += 1) {
+        const comments = await this.client.listComments(issueNumber, { page, perPage: 100 });
+        if (comments.some((comment) => markers.every((marker) => comment.body?.includes(marker)))) return true;
+        if (comments.length < 100) break;
+      }
+    } catch {
+      return false;
+    }
+    return false;
   }
 }
 
-export function buildFinalizeArtifactsPrompt(snapshot: TranscriptSnapshot, schema?: MemorySchema): string {
+const MAX_COMMENT_CHARS = 55_000;
+const DEFAULT_MESSAGES_PER_COMMENT = 1;
+const COMMENT_SEPARATOR = "\n\n---\n\n";
+const COMMENT_RETRY_DELAYS_MS = [0, 50, 250];
+type TranscriptCommentUnit = { body: string; count: number; markers: string[] };
+type TranscriptCommentBatch = { body: string; count: number; markers: string[] };
+
+export function batchTranscriptComments(
+  messages: NormalizedMessage[],
+  maxChars = MAX_COMMENT_CHARS,
+  maxMessages = DEFAULT_MESSAGES_PER_COMMENT,
+  startIndex = 0,
+): TranscriptCommentBatch[] {
+  const units = messages.flatMap((message, index) => splitTranscriptMessage(message, maxChars, startIndex + index));
+  const batches: TranscriptCommentBatch[] = [];
+  let current: TranscriptCommentUnit[] = [];
+  let currentCount = 0;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    batches.push({
+      body: current.map((unit) => unit.body).join(COMMENT_SEPARATOR),
+      count: currentCount,
+      markers: current.flatMap((unit) => unit.markers),
+    });
+    current = [];
+    currentCount = 0;
+  };
+
+  for (const unit of units) {
+    const nextSize = current.length === 0
+      ? unit.body.length
+      : current.map((entry) => entry.body).join(COMMENT_SEPARATOR).length + COMMENT_SEPARATOR.length + unit.body.length;
+    if (current.length > 0 && (nextSize > maxChars || currentCount + unit.count > maxMessages)) flush();
+    current.push(unit);
+    currentCount += unit.count;
+  }
+  flush();
+  return batches;
+}
+
+function splitTranscriptMessage(message: NormalizedMessage, maxChars: number, index: number): TranscriptCommentUnit[] {
+  const text = message.text.trim();
+  const marker = transcriptMarker(index, message);
+  const single = renderTranscriptMessage(message.role, text, marker);
+  if (single.length <= maxChars) return [{ body: single, count: 1, markers: [marker] }];
+
+  const parts: TranscriptCommentUnit[] = [];
+  const prefixBudget = renderTranscriptMessage(message.role, "", transcriptMarker(index, message, 999, 999), 999, 999).length;
+  const chunkSize = Math.max(1, maxChars - prefixBudget - 128);
+  const chunks: string[] = [];
+  for (let offset = 0; offset < text.length; offset += chunkSize) {
+    chunks.push(text.slice(offset, offset + chunkSize));
+  }
+  for (const [partIndex, chunk] of chunks.entries()) {
+    const partMarker = transcriptMarker(index, message, partIndex + 1, chunks.length);
+    parts.push({
+      body: renderTranscriptMessage(message.role, chunk, partMarker, partIndex + 1, chunks.length),
+      count: partIndex === chunks.length - 1 ? 1 : 0,
+      markers: [partMarker],
+    });
+  }
+  return parts;
+}
+
+function renderTranscriptMessage(role: string, text: string, marker: string, part?: number, total?: number): string {
+  const lines = [
+    "<!-- clawmem-transcript",
+    `marker: ${marker}`,
+    `message_index: ${marker.slice("clawmem-message:".length).split(":")[0]}`,
+    `message_hash: ${marker.split(":").at(-1) ?? ""}`,
+    "-->",
+    `role: ${role}`,
+  ];
+  if (part && total && total > 1) lines.push(`part: ${part}/${total}`);
+  return `${lines.join("\n")}\n\n${text}`;
+}
+
+function transcriptMarker(index: number, message: NormalizedMessage, part?: number, total?: number): string {
+  const hash = sha256(`${message.role}\n${message.text.trim()}`).slice(0, 16);
+  if (part && total && total > 1) return `clawmem-message:${index}:part:${part}/${total}:${hash}`;
+  return `clawmem-message:${index}:${hash}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function buildFinalizeArtifactsPrompt(snapshot: TranscriptSnapshot): string {
   return [
-    "Write the final issue summary and extract durable memory candidates from the conversation below.",
-    'Return valid JSON only in the form {"summary":"...","title":"...","candidates":[{"title":"...","detail":"...","kind":"...","topics":["..."],"evidence":"..."}]}.',
+    "Write the final issue summary and title for the ClawMem conversation issue below.",
+    'Return valid JSON only in the form {"summary":"...","title":"..."}.',
     "The summary should be concise, factual, and written in 2-4 sentences.",
+    "Do not extract durable memories. Do not propose labels. Do not include memory candidates.",
     "Do not include markdown, bullet points, or analysis.",
     "",
     "Title rules:",
@@ -207,57 +353,19 @@ export function buildFinalizeArtifactsPrompt(snapshot: TranscriptSnapshot, schem
     "- Should let someone immediately know what the conversation is about.",
     "- Must be in the same language as the majority of the conversation content.",
     "- Good: precise, descriptive, specific. Bad: vague, overly creative, generic.",
-    "",
-    "Candidate rules:",
-    "- Extract only durable facts, preferences, decisions, constraints, workflows, and ongoing context worth remembering later.",
-    "- Each candidate must represent one durable fact. Split independent facts into separate candidates.",
-    "- Prefer a concise explicit title for each candidate whenever the fact can be named clearly.",
-    "- Candidate titles and details must be in the same language as the majority of the conversation content.",
-    "- Do not extract temporary requests, tool chatter, startup boilerplate, or summaries about internal helper sessions.",
-    "- Reuse existing schema labels when one already fits.",
-    "- If no existing kind or topic fits, create one short stable machine-readable label instead of a translated or near-duplicate variant.",
-    "- Keep kind and topic labels short, reusable, low-cardinality, and machine-readable.",
-    "- Evidence is optional. If present, keep it short and quote-free.",
-    "- Prefer an empty candidates array when nothing durable was learned.",
-    "",
-    ...buildFinalizeSchemaSection(schema),
     "<conversation>",
     fmtTranscript(snapshot.messages),
     "</conversation>",
   ].join("\n");
 }
 
-function buildFinalizeSchemaSection(schema?: MemorySchema): string[] {
-  if (!schema) return [];
-
-  const kinds = schema.kinds.map((kind) => kind.trim()).filter(Boolean);
-  const topics = schema.topics.map((topic) => topic.trim()).filter(Boolean);
-  if (kinds.length === 0 && topics.length === 0) return [];
-
-  const kindLines = kinds.slice(0, FINALIZE_SCHEMA_KIND_LIMIT).map((kind) => `- kind:${kind}`);
-  const topicLines = topics.slice(0, FINALIZE_SCHEMA_TOPIC_LIMIT).map((topic) => `- topic:${topic}`);
-  const kindOverflow = kinds.length > kindLines.length ? [`- ...and ${kinds.length - kindLines.length} more kinds`] : [];
-  const topicOverflow = topics.length > topicLines.length ? [`- ...and ${topics.length - topicLines.length} more topics`] : [];
-
-  return [
-    "Current schema to reuse first:",
-    "<current-schema>",
-    "Kinds:",
-    ...(kindLines.length > 0 ? kindLines : ["- None"]),
-    ...kindOverflow,
-    "Topics:",
-    ...(topicLines.length > 0 ? topicLines : ["- None"]),
-    ...topicOverflow,
-    "</current-schema>",
-    "Prefer these existing labels whenever they fit. Only create a new label when none of the current labels matches the fact you are storing.",
-    "",
-  ];
-}
-
 async function fexists(p: string): Promise<boolean> { try { return (await fs.promises.stat(p)).isFile(); } catch { return false; } }
 function isNotFoundError(error: unknown): boolean {
   const text = String(error);
   return text.includes("HTTP 404");
+}
+function commentValue(value: string): string {
+  return value.replace(/--/g, "- -").replace(/\r?\n/g, " ").trim();
 }
 /** Derive an initial placeholder title for a new conversation. The real title is generated by LLM once enough messages are available. */
 export function deriveInitialTitle(_messages: NormalizedMessage[], sessionId: string): string {
@@ -293,12 +401,6 @@ function parseSummaryAndTitle(raw: string): { summary: string; title?: string } 
   return { summary: t };
 }
 
-function parseFinalArtifacts(raw: string): { summary: string; title?: string; candidates: MemoryCandidate[] } {
-  const parsedSummary = parseSummaryAndTitle(raw);
-  const candidates = parseCandidates(raw);
-  return {
-    summary: parsedSummary.summary,
-    ...(parsedSummary.title ? { title: parsedSummary.title } : {}),
-    candidates,
-  };
+function parseFinalArtifacts(raw: string): { summary: string; title?: string } {
+  return parseSummaryAndTitle(raw);
 }

@@ -1,115 +1,404 @@
 # ClawMem Memory Schema
 
-Use this reference when deciding how to label or shape a memory, or when you need to explain the ClawMem graph model to another agent or user.
+Use this reference when deciding how to label, write, update, or retire a
+ClawMem memory issue.
 
-## The memory graph
+## Records
 
-Issues are nodes. Labels are schema. `#ID` references are edges.
+ClawMem uses GitHub-native records:
 
-When one memory depends on, refines, supersedes, or generalizes another memory, mention the related `#ID` in the issue body so the relationship stays explicit in the graph.
+- `type:conversation`: mandatory transcript mirror and raw episodic source
+- `type:memory`: durable distilled memory
 
-There are two valid memory shapes:
-- Plugin-managed structured memories: created through `memory_store` or `memory_update`; the plugin manages core labels and may also persist agent-selected `kind:*` and `topic:*` labels
-- Curated graph memories: created manually through `gh` or `curl` when you explicitly need raw issue control
+Do not add extra layer labels. The layer is represented by the record form:
+conversation issues for episodes, memory issues for distilled knowledge, and
+skills/docs/runbooks for executable procedure.
+
+Conversation issues are provenance, audit trail, and rebuild input. They are
+not the normal online recall layer. If a fact, date, preference, decision,
+rule, skill trigger, lesson, profile note, or insight matters for future recall
+or answering, write it into a `type:memory` issue.
 
 ## Labels
 
-Plugin-managed memories always include:
+Use labels only for routing, filtering, and shared vocabulary.
+
+Before recall or write, list labels from the selected repo. Do not assume that
+the default repo's labels apply to another repo.
+
+Required:
+
 - `type:memory`
 
-Plugin-managed memories may also include:
-- one `kind:*` label
-- optional `topic:*` labels
+Optional:
 
-Lifecycle is carried by native issue state:
+- one `kind:*`
+- a small number of `topic:*`
+
+Lifecycle:
+
 - open issue = active memory
-- closed issue = stale or superseded memory
+- closed issue = inactive, stale, superseded, or archived
 
-If you create a curated memory manually, include:
-- `type:memory`
-- one `kind:*` label
-- optional `topic:*` labels, usually no more than two or three
+The inactive reason belongs in the closing comment, not in another lifecycle
+label.
 
-## Kinds
+## Default Kinds
 
-| Kind | Label | Use it for |
-|---|---|---|
-| Core fact | `kind:core-fact` | Stable truths that should update in place as reality changes |
-| Convention | `kind:convention` | Agreed rules or policies |
-| Lesson learned | `kind:lesson` | Corrections, postmortems, or mistakes worth preserving |
-| Skill blueprint | `kind:skill` | Repeatable workflows or playbooks |
-| Active task | `kind:task` | Ongoing work that should stay visible and update over time |
+| Label | Use it for |
+| --- | --- |
+| `kind:fact` | Stable declarative truth about a user, project, system, or world state |
+| `kind:preference` | A person's or team's preferred style, default, taste, or recurring choice |
+| `kind:convention` | Standing agreement, rule, policy, or norm |
+| `kind:decision` | A choice that has been made and should guide future work |
+| `kind:task` | Ongoing or future work that should remain active until resolved |
+| `kind:skill` | When/how to use, create, or update a skill, doc, or runbook |
+| `kind:lesson` | Correction, mistake, postmortem, or rule learned from experience |
+| `kind:profile` | Compact model of a person, project, team, repo, or agent |
+| `kind:insight` | Synthesized pattern, interpretation, hypothesis, or mental model |
 
-## When to create which kind
+Use `kind:insight` sparingly. If the memory is a direct truth, prefer
+`kind:fact`; if it came from a correction or failure, prefer `kind:lesson`.
 
-| Trigger | Kind |
-|---|---|
-| User corrects a wrong assumption | `kind:lesson` |
-| You and the user agree on a rule | `kind:convention` |
-| A stable fact about the user or project | `kind:core-fact` |
-| A repeatable workflow you figured out | `kind:skill` |
-| Ongoing work to track | `kind:task` |
+## Answerable Text
 
-## Disciplined self-evolution
+Memory issues are search and maintenance records, not just summaries. Preserve
+the answer-bearing details inside `## Memory` so future agents should not need
+to reopen raw transcript text during normal recall:
 
-- Before inventing a new `kind` or `topic`, call `memory_labels`.
-- Reuse current schema when it already fits.
-- If the current schema does not fit and a new label would help future retrieval, coordination, or reuse, create one deliberate new machine-readable label.
-- Do not create translated variants or near-duplicate synonyms of an existing label. Prefer reuse first, then one canonical new label if needed.
-- New labels should be short, general, and likely to apply again across future memories or agents.
-- For plugin-managed memory schema, do not invent random label prefixes. Memory schema evolution must stay within `kind:*` and `topic:*`.
+| Kind | Required detail shape |
+| --- | --- |
+| `kind:fact` | `<subject> <fact>`, with date/time and scope when known |
+| `kind:preference` | `<person/team> prefers <choice> when <situation>` |
+| `kind:convention` | `<scope> follows <rule>`, plus exception if known |
+| `kind:decision` | `<scope> decided <choice>`, plus reason/effective time if useful |
+| `kind:task` | `<actor/scope> needs <outcome>`, plus status/deadline when explicit |
+| `kind:skill` | `Use/create/update <skill/doc> when <trigger>` |
+| `kind:lesson` | `<failure/correction> taught <future rule>` |
+| `kind:profile` | Compact, durable model of a person/team/project |
+| `kind:insight` | Pattern or hypothesis plus boundary/uncertainty |
 
-## Update vs new: the node-evolution rule
+Do not make non-fact memories look like fact cards. Keep the kind-specific
+meaning in natural language.
 
-Durable knowledge evolves by updating canonical nodes, not by spawning near-duplicates.
+Use `kind:profile` and `kind:insight` for strongly supported human-style
+inferences, not just explicit facts: career direction, fields of study, values,
+interests, personality traits, likely political/religious leaning, community
+relation, allyship, likely dislikes, and negative boundaries. Include the basis
+and uncertainty. For example, `Melanie is supportive as an ally, but the source
+does not say she identifies as LGBTQ`.
 
-- Before `memory_store`, `memory_recall` the same topic. If an open memory already covers the same fact, decision, workflow, or policy, use `memory_update` instead. Only open a new node when the new fact is semantically orthogonal to every existing canonical node.
-- When updating, preserve the node's original language unless the user explicitly asks for a rewrite. Refine the `detail` in place, tighten `title`, and add topic labels as coverage expands.
-- When a memory is contradicted by the current turn, choose one of:
-  - `memory_update` to record the new canonical truth on the existing node,
-  - `memory_forget` (close the issue) if the fact is simply no longer true and has no replacement,
-  - or open a new node and close the old one with a body note `superseded-by: #<new-id>` when the semantics are now different enough that one node cannot carry both.
-- Lesson → Skill promotion: when two or more active `kind:lesson` nodes point at the same corrective direction on the same topic, write one `kind:skill` that captures the positive behavior and close the lessons with `superseded-by: #<new-skill-id>`. Keep a single lesson open only if it captures a specific failure worth remembering on its own.
-- Re-validation: when `memory_recall` surfaces a `kind:skill` or `kind:convention` and the current turn re-confirms or re-applies it, `memory_update` to bump the `last_validated` date in the body (see template below) and append the turn's conversation id to `evidence`. Silent success erodes confidence in old nodes.
+Supported inferences should be answer-shaped when future questions are likely
+to ask them directly. Use visible wording such as `likely yes`, `likely no`,
+`would likely`, `would not likely`, `suitable option`, `good hobby/activity`,
+or `would not cause discomfort`, followed by the basis and boundary. This is
+especially important for counterfactual, suitability, recommendation, and
+status questions.
 
-## Skill body template (`kind:skill`)
+### Answer-Complete Records
 
-In ClawMem, a "skill" is a `kind:skill` memory — an issue written through `memory_store` / `memory_update`. It is not a file-based skill package (`skills/<name>/SKILL.md`), and the ClawMem turn loop never triggers a file-based skill-creator. When the user says "沉淀成 skill", "存成 skill", or "remember this procedure", write the memory here using the template below. Only produce an on-disk skill package when the user explicitly asks for one.
+`## Memory` should preserve the exact values future questions may ask for:
+person names, places, organizations, dates, quantities, list items,
+relationship targets, causes, and reasons. Avoid lossy abstractions.
+It should also carry likely query hooks. Preserve the source wording, but add
+the wording future users or agents will probably search: `weakness` can become
+`favorite snack/food`; `about to try`, `started`, or a concrete activity event
+can become `new/fun activity`; `suggested` can become `recommendation` or
+`advice`. Do not infer a favorite-food memory from generic enjoyment of a meal
+or event; require a direct preference signal such as `weakness`, `craving`, or
+`favorite`, or keep it as a diet/meal fact.
+A value buried in a broad memory without likely query wording is not fully
+covered; add or retitle a focused memory so recall can find it.
+It is acceptable to add a short `Query hooks:` sentence inside `## Memory` when
+the hook is retrieval vocabulary, not a new fact.
 
-`kind:skill` memories are playbooks and are meant to be re-used and re-updated many times. Give them a stable YAML-on-top body so they remain readable and mergeable. Read this section before your first `memory_store` with `kind:skill` and shape the initial `detail` body using this skeleton — don't save as prose and plan to refactor later.
+Bad:
 
-```yaml
-trigger: When this skill applies — the user request shape or situation that should cue it.
-steps:
-  - First action, concrete enough to follow without re-deriving.
-  - Next action.
-  - Final action.
-checks:
-  - Signals that the skill succeeded.
-  - Signals that the skill is the wrong fit and you should stop.
-last_validated: 2026-04-20
-evidence:
-  - "#42"   # conversation issue or memory id that supports this skill
-  - "#77"
+```markdown
+## Memory
+
+Caroline moved from her home country and values her support network.
 ```
 
-Narrative prose, caveats, and references can follow the YAML block in the same body. The YAML block itself stays flat (no nested maps beyond lists), which matches ClawMem's body parser.
+Good:
 
-When a `kind:skill` is re-used successfully, `memory_update` to:
-- bump `last_validated` to today's date,
-- append the latest supporting id to `evidence`,
-- refine `steps` or `checks` only if the turn produced a clearly better formulation.
+```markdown
+## Memory
 
-When a `kind:skill` fails in use, either fix `steps` / `checks` in place or close the node and open a replacement that references the old id with `superseded-by`.
+Caroline moved from Sweden. As of the source conversation, she has known her
+close friends for 4 years, since that move, and their support helped her after a
+tough breakup and throughout her transition.
+```
 
-## Storage language
+Use these body patterns inside `## Memory` when they fit:
 
-- For new memory nodes, write the human-readable title and body in the user's current language by default.
-- When using plugin tools, prefer passing an explicit short `title` plus a fuller `detail` body.
-- Do not treat the title as the only durable content. The body detail should still contain the full reusable fact.
-- When updating an existing memory node, preserve that node's current language unless the user explicitly asks for a rewrite.
-- Do not translate schema or routing markers such as `type:*`, `kind:*`, `topic:*`, or other machine-oriented field names.
+- `atomic fact`: one subject plus one answer-bearing fact.
+- `canonical set`: the complete known set, such as hobbies, places, pets,
+  family members, tools, or constraints.
+- `profile capsule`: compact durable model of a person, team, repo, or project.
+- `answer-shaped consolidation`: cross-session scoped record for a stable
+  property, such as activities, books/media, pets, events, artifacts, status,
+  or project decisions.
+- `detail sweep`: source-only microfact record for exact values that broad
+  summaries tend to hide, such as collected items, advice steps, photo/sign
+  wording, one-off feelings, suitable pets, gift/tool recommendations, or
+  project durations.
+- `query-hook repair`: focused alias record when a value exists but likely
+  future question wording is missing, such as `favorite snack/food`, `new/fun
+  activity`, `recommendation`, or `exact item`.
+- `answer-completeness audit`: final narrow pass for source values that are
+  still not answerable from memory alone. Check image/artifact authorship,
+  ordinal creative-work timing, favorite/preference canonical sets, and exact
+  advice or purpose phrases. Scattered memories are not enough for a set
+  question; add one canonical subject-property memory when values are split
+  across records or buried under another person's title. Keep the boundary
+  visible so adjacent recipes, events, or items from other contexts do not leak
+  into the canonical set. Audit each subject independently; a memory titled
+  around Joanna's desserts is not sufficient for Nate's favorite desserts even
+  if Nate appears in the body. Run the whole checklist and add every missing
+  audited shape instead of stopping after the first one. For cross-session
+  sets, name the contributing dates in the body; do not attach earlier values
+  to a later source date as if they were stated that day.
+- `temporal event`: event date plus source date or original relative phrase.
+- `literal anchor ledger`: scoped bullets for short answer-bearing values such
+  as dates, months, years, durations, quantities, exact names, and
+  first/last/current/planned facts.
+- `causal link`: cause, effect, and affected person/project/decision.
+- `image/artifact fact`: exact image-caption object or scene plus the speaker's
+  deictic wording, such as `this`, `here is one`, or `they made this`.
+- `ordinal creative work`: first/second/third/fourth screenplay, movie, book,
+  draft, or project plus action and timing, such as `Joanna third screenplay
+  start in May 2022`. If only month-level timing is supported, preserve that
+  boundary, such as `by May 2022; exact start day not stated`.
+- `exact answer phrase`: advice, recommendation, or motivation wording that a
+  future answer may need verbatim, such as `keep trying new things until
+  something sparks excitement` or `strengthen the bond with her pets`.
 
-## Storage rule
+Before saving, ask whether likely `who`, `what`, `when`, `where`, `why`,
+`how many`, or `which items` questions can be answered from `## Memory` alone.
+If not, enrich the issue or split the memory.
 
-If you are writing something so the agent remembers it later, store it in ClawMem. If you are writing something for a tool or human to read directly, write a file instead.
+After semantic and literal-anchor passes, consolidate scattered values into
+scoped records when future recall would otherwise need several transcript
+comments. Check recurring people/entities for profile/status, canonical sets,
+reasons/reactions, supported likely answers, and image/artifact facts.
+For long multi-session sources, this should usually create or update several
+scoped records, not zero or one.
+
+Do not hide unrelated facts in one issue to reduce count. One issue can carry a
+canonical set or a coherent event, but mixed titles such as `necklace, birthday
+bowl, and counseling workshop` should be split into searchable records.
+
+### Literal Anchor Ledgers
+
+Use a ledger when a session or source contains many related short answers that
+would be lost in a normal narrative summary. Ledgers are not a new memory kind
+or label; they are usually `kind:fact` records with a scoped title. Do not make
+a generic ledger for every session. If the exact value belongs naturally in a
+semantic fact, profile, preference, decision, task, skill, lesson, or insight,
+put it there instead.
+
+Good:
+
+```markdown
+## Memory
+
+Caroline and Melanie literal anchors:
+- 2023-05-07: Caroline went to the LGBTQ support group. Source wording:
+  "yesterday" in the 2023-05-08 conversation.
+- 2022: Melanie painted a sunrise.
+- The Sunday before 2023-05-25: Melanie ran a charity race for mental health.
+- June 2023: Melanie planned to go camping.
+- 4 years: Caroline had had her current group of friends for 4 years.
+```
+
+Bad:
+
+```markdown
+## Memory
+
+Caroline and Melanie discussed recent events, hobbies, and future plans.
+```
+
+For high-value or benchmark writes, use `scripts/clawmem_memory_lint.py` on the
+draft body before creating or editing the issue. The helper checks schema
+mistakes and optional exact-value coverage; it does not decide whether a memory
+should be written.
+Use `--require-query-hooks` when evaluating source-derived memories whose
+wording may differ from future questions, and `--require-frontloaded-expect`
+when exact values should appear in titles or first sentences rather than being
+buried deep in a long body.
+
+### Recall With Ledgers
+
+Literal anchor ledgers improve exact-value coverage, but they should not compete
+equally with semantic memories for every question. Recall should be
+question-aware:
+
+- literal questions should include relevant ledger memories early
+- semantic, causal, preference, decision, profile, and explanation questions
+  should prefer ordinary semantic memories first
+- ledgers can still support semantic answers when exact dates, quantities, or
+  names matter, but they should not crowd out the main semantic record
+- list or set answers should scan for all values tied to the asked predicate,
+  merge compatible values, and avoid adjacent values that answer a different
+  predicate
+- favorite/current-favorite answers should prefer direct favorite wording over
+  adjacent played/watched/read/tried activity records
+- activity-in-month answers should prefer memories whose subject, activity
+  predicate, and event month all match the question over later broad hobby
+  summaries
+- when recalled memories overlap or conflict, use the most specific memory whose
+  title or text matches the question's subject, object, action, and date to
+  resolve the conflict; broad summaries can still supply compatible context
+- answerers should preserve date granularity from `## Memory`; month/year-only
+  memories should not become day-specific answers unless the day is visible in
+  the memory text
+- answerers should resolve supported relative phrases such as `last week`
+  against visible source date context and answer with calendar time instead of
+  repeating the relative phrase
+
+If evals show many `recall_miss` cases after adding ledgers, reduce generic
+ledger creation and improve titles/body query hooks. More memory records are not
+automatically better when they dilute retrieval.
+
+## Temporal Semantics
+
+`valid_from` and `valid_to` describe the validity of the memory statement. They
+do not replace event dates in the visible memory text.
+
+Use this distinction:
+
+- `event date`: when the remembered event happened; write it in `## Memory`
+- `valid_from`: when the memory statement becomes valid for future use
+- `valid_to`: when the statement stops being valid, if known
+
+Example:
+
+```markdown
+## Memory
+
+On 2023-05-07, Caroline went to the LGBTQ support group. This was described in
+the 2023-05-08 conversation as "yesterday".
+
+<!-- clawmem
+schema_version: clawmem/v2
+valid_from: 2023-05-08
+valid_to:
+-->
+```
+
+For ongoing states, preferences, conventions, or profiles, `valid_from` may be
+the best available temporal anchor:
+
+```markdown
+## Memory
+
+As of 2023-08-01, Jolene uses video games, Susie, and pets to cope with stress.
+```
+
+Rules:
+
+- Convert relative dates only when the source date is known.
+- Keep the original relative phrase when it may help review or answering.
+- Do not leave relative-only anchors when the source date supports conversion;
+  write the computed date, month, or year next to the original phrase.
+- Do not invent exact dates.
+- Preserve granularity. If the source only supports `April 2023`, do not write
+  a specific day.
+- Treat the source timestamp as provenance, not the event date. `recently`,
+  `just`, `currently`, or a plain message timestamp do not by themselves
+  justify a day-level event date; write `as of <source_date>` or the supported
+  month/year unless the source gives an exact date, a resolvable relative
+  phrase, or explicit same-day wording.
+- Never rely on hidden metadata alone to answer event-date questions.
+- Deterministic normalization may append obvious anchors to already-kept
+  memory text, such as `last year (2022)`, `yesterday (2023-05-07)`, or
+  `ten years earlier (about 10 years ago, around 2013)`. It should not create
+  new memories or decide retention value.
+
+## Canonicalization
+
+Before writing, search for existing open `type:memory` issues about the same
+subject/property, entity, skill trigger, or canonical set.
+
+Prefer `UPDATE` over `ADD` when the new information:
+
+- extends a list or set
+- refines a profile or preference
+- corrects an event date or condition
+- advances the same task or decision
+- turns scattered fragments into a more answerable canonical memory
+
+For set-like facts, keep one current issue when practical:
+
+```markdown
+## Memory
+
+Melanie's known recurring activities include pottery, camping, painting, and
+swimming.
+```
+
+## Body Format
+
+Visible issue bodies are GitHub Flavored Markdown:
+
+```markdown
+## Memory
+
+The durable memory in human-readable language.
+
+## Relations
+
+- Source: #123
+- Supersedes: #88
+- Related: #91
+
+## Notes
+
+Optional caveats, review notes, or short maintenance context.
+
+<!-- clawmem
+schema_version: clawmem/v2
+valid_from: 2026-04-24
+valid_to:
+-->
+```
+
+Rules:
+
+- `## Memory` is the canonical human-facing record.
+- `## Relations` uses normal GitHub issue references so humans and agents can
+  follow relationships through GitHub-compatible issue views.
+- `## Evidence` is optional and only for synthesized, uncertain, or multi-source
+  memories that need a short justification.
+- Do not duplicate labels or lifecycle state inside the body.
+- Do not put event-date details only in hidden metadata.
+- Do not add `memory_id`, `confidence`, or author fields by default. GitHub
+  issue numbers, issue authors, and comment authors already carry that history.
+
+## Write Decisions
+
+- `ADD`: create a new `type:memory` issue.
+- `UPDATE`: edit the existing canonical issue.
+- `DELETE`: close the stale/false/superseded issue, add a closing comment, and
+  link a replacement when one exists.
+- `NONE`: do not write.
+
+Before writing, search for duplicates and conflicts. If support is not strong
+enough for a durable record, choose `NONE` and ask the user when the uncertainty
+matters. Do not create candidate issues or candidate labels.
+
+## Local Alpha Filter
+
+Prefer retaining knowledge that public pretraining would not already provide:
+
+- user or team preferences
+- repo/project decisions
+- conventions and policies
+- environment-specific facts
+- recurring failures and lessons
+- procedural knowledge that should become a skill/doc/runbook
+
+Skip generic public facts unless they are tied to a local decision,
+convention, or failure.

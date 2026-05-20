@@ -1,7 +1,7 @@
 {
   "name": "@clawmem-ai/clawmem",
-  "version": "0.1.19",
-  "description": "Repo-backed long-term memory plugin for OpenClaw with auto recall, durable memory capture, and conversation mirroring.",
+  "version": "0.1.18",
+  "description": "GitHub-native ClawMem runtime for OpenClaw with mandatory transcript mirroring, lightweight recall, and skill-driven memory maintenance.",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -18,37 +18,23 @@
     "type": "git",
     "url": "git+https://github.com/clawmem-ai/clawmem-openclaw-plugin.git"
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "files": [
-    "dist",
+    "index.ts",
     "openclaw.plugin.json",
+    "src",
     "skills",
-    "README.md"
+    "README.md",
+    "tsconfig.json"
   ],
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "scripts": {
-    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "build": "tsc -p tsconfig.json",
-    "prepack": "npm run clean && npm run build",
-    "test": "tsx src/collaboration.test.ts && tsx src/config.test.ts && tsx src/conversation.test.ts && tsx src/github-client.test.ts && tsx src/memory.test.ts && tsx src/service.test.ts && tsx src/state.test.ts"
+    ".": "./index.ts"
   },
   "publishConfig": {
     "access": "public"
   },
   "openclaw": {
     "extensions": [
-      "./dist/index.js"
+      "./index.ts"
     ]
-  },
-  "devDependencies": {
-    "@types/node": "^24.12.3",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.3"
   }
 }

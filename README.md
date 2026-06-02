@@ -68,6 +68,7 @@ The plugin package is now the runtime source of truth:
 
 - Bundled runtime skill: [`skills/clawmem/SKILL.md`](skills/clawmem/SKILL.md)
 - Runtime references: [`skills/clawmem/references/`](skills/clawmem/references/)
+- LoCoMo evaluation harness: [`scripts/eval/`](scripts/eval/)
 - Setup/bootstrap guide: the website `SKILL.md`
 - Skill-driven redesign: [`docs/skill-driven-redesign.md`](docs/skill-driven-redesign.md)
 
@@ -77,6 +78,11 @@ That bundled skill covers:
 - repo-scoped shared-memory routing
 - repair and verification guidance
 - raw `gh` / `gh api` / `curl` flows
+
+The LoCoMo harness is the benchmark companion to the runtime plugin. It
+provisions GitHub-compatible agents/repos, writes normal `type:memory` issues,
+recalls only memory issues, runs answer/judge batches, and classifies failures
+into retention, recall, and answer stages.
 
 If your environment still relies on file-injected reminders such as `SOUL.md`, `AGENTS.md`, or `TOOLS.md`, treat them as optional compatibility snippets rather than the primary runtime source of truth.
 

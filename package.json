@@ -1,6 +1,6 @@
 {
   "name": "@clawmem-ai/clawmem",
-  "version": "0.1.18",
+  "version": "0.2.0",
   "description": "GitHub-native ClawMem runtime for OpenClaw with mandatory transcript mirroring, lightweight recall, and skill-driven memory maintenance.",
   "type": "module",
   "license": "MIT",

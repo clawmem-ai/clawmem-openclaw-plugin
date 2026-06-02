@@ -23,6 +23,7 @@ python3 scripts/eval/clawmem_locomo_memory_only.py \
   --run-name memory_only \
   --recall-plan multi \
   --recall-variant-limit 6 \
+  --wiki-context \
   --search-debug \
   --keep-going
 ```
@@ -32,6 +33,7 @@ It writes:
 - `memory_only.config.json`: provisioned agent route and run config
 - `memory_only.memories.jsonl`: extracted grouped memories
 - `memory_only.memory_map.jsonl`: repo/issue mapping for stored memories
+- `memory_only.wiki_map.jsonl`: repo/wiki page mapping when `--wiki-context` is enabled
 - `memory_only.predictions.jsonl`: memory-only recall predictions
 
 Generate answers and judge them:
@@ -107,6 +109,16 @@ quality:
 - `--recall-plan multi --recall-variant-limit 6` matches the plugin's default
   query-planner quality mode.
 - `--recall-variant-limit 3` is useful only for latency-sensitive probes.
+- `--wiki-context` creates one wiki context map per source repo and searches
+  wiki pages during recall. Direct open `type:memory` issue search still runs
+  in parallel; wiki references only boost or add issue-memory candidates.
+- `--wiki-context-source map` is the efficient eval mode for large runs: it
+  reuses the generated wiki map, fetches each source page once, then extracts
+  query-relevant `#issue` references locally. The default `search` mode measures
+  the backend wiki search path on every query.
+- `--wiki-context-limit` and `--wiki-ref-fetch-limit` bound the extra wiki
+  search and referenced-issue reads so the harness can measure recall impact
+  without turning the wiki into a second ground-truth store.
 - `conversationSummaryMode: "placeholder"` is acceptable for benchmark runs
   because conversation issues are provenance and do not participate in recall.
 - One message per comment remains the normal product behavior; bulk/eval paths

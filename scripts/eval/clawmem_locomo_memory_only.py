@@ -251,6 +251,30 @@ def main() -> None:
         default=int(os.environ.get("CLAWMEM_EVAL_SEMANTIC_LEDGER_CONTEXT_LIMIT", "-1")),
         help="For semantic questions, include at most this many literal-ledger memories in raw answer context. -1 disables filtering.",
     )
+    parser.add_argument(
+        "--wiki-context",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("CLAWMEM_EVAL_WIKI_CONTEXT", "").lower() in {"1", "true", "yes"},
+        help="Create/search repo wiki context maps as recall boosters. Direct type:memory issue recall still runs in parallel.",
+    )
+    parser.add_argument(
+        "--wiki-context-source",
+        choices=["search", "map"],
+        default=os.environ.get("CLAWMEM_EVAL_WIKI_CONTEXT_SOURCE", "search"),
+        help="Use backend wiki search per query, or reuse the run wiki_map and fetch each repo context page once. Default: search.",
+    )
+    parser.add_argument(
+        "--wiki-context-limit",
+        type=int,
+        default=int(os.environ.get("CLAWMEM_EVAL_WIKI_CONTEXT_LIMIT", "3")),
+        help="Maximum wiki pages to fetch per recall query when --wiki-context is enabled.",
+    )
+    parser.add_argument(
+        "--wiki-ref-fetch-limit",
+        type=int,
+        default=int(os.environ.get("CLAWMEM_EVAL_WIKI_REF_FETCH_LIMIT", "6")),
+        help="Maximum wiki-referenced issue memories to inspect per recall query.",
+    )
     parser.add_argument("--resume", action="store_true", help="Reuse existing memories and skip completed predictions.")
     parser.add_argument("--reuse-issues", action="store_true", help="Reuse an existing memory_map JSONL and skip repo/issue creation.")
     parser.add_argument("--skip-store", action="store_true", help="Only extract memories; do not create repos/issues or recall.")
@@ -360,6 +384,10 @@ def main() -> None:
     predictions_by_id = load_predictions(paths.predictions) if args.resume else {}
     pending_cases = [case for case in cases if case.get("case_id") not in predictions_by_id]
     by_source_memory_map = memory_map_by_source(load_memory_map(paths.memory_map))
+    if args.wiki_context:
+        ensure_wiki_context_pages(authed, by_source_memory_map, paths.wiki_map, args.resume)
+        if args.wiki_context_source == "map":
+            attach_cached_wiki_context_pages(authed, by_source_memory_map, paths.wiki_map)
     log(f"recalling {len(pending_cases)} case(s), concurrency={args.recall_concurrency}")
     with paths.predictions.open("a" if args.resume and paths.predictions.exists() else "w", encoding="utf-8") as sink:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.recall_concurrency)) as pool:
@@ -379,6 +407,10 @@ def main() -> None:
                     args.recall_plan,
                     args.recall_variant_limit,
                     args.recall_reserved_slots,
+                    args.wiki_context,
+                    args.wiki_context_source,
+                    args.wiki_context_limit,
+                    args.wiki_ref_fetch_limit,
                 ): case
                 for case in pending_cases
             }
@@ -410,6 +442,7 @@ class RunPaths:
         self.config = out_dir / f"{run_name}.config.json"
         self.memories = out_dir / f"{run_name}.memories.jsonl"
         self.memory_map = out_dir / f"{run_name}.memory_map.jsonl"
+        self.wiki_map = out_dir / f"{run_name}.wiki_map.jsonl"
         self.predictions = out_dir / f"{run_name}.predictions.jsonl"
 
 
@@ -542,6 +575,112 @@ def create_memory_issue(client: ApiClient, repo: str, memory: dict[str, Any]) ->
         "body": body,
         "labels": ["type:memory", f"kind:{kind}"],
     })
+
+
+def ensure_wiki_context_pages(client: ApiClient, by_source: dict[str, dict[str, Any]], wiki_map_path: Path, resume: bool) -> None:
+    existing = load_wiki_map(wiki_map_path) if resume else {}
+    mode = "a" if resume and wiki_map_path.exists() else "w"
+    with wiki_map_path.open(mode, encoding="utf-8") as sink:
+        for source_id, source in sorted(by_source.items()):
+            repo = str(source.get("repo") or "").strip()
+            memories_by_issue = source.get("memories_by_issue") if isinstance(source.get("memories_by_issue"), dict) else {}
+            if not repo or not memories_by_issue:
+                continue
+            slug = wiki_context_slug(source_id)
+            key = f"{repo}:{slug}"
+            if key in existing:
+                continue
+            body = render_wiki_context_page(source_id, memories_by_issue)
+            client.request("PUT", f"repos/{repo}/wiki/pages/{wiki_slug_path(slug)}", {
+                "body": body,
+                "message": f"Update LoCoMo wiki context for {source_id}",
+            })
+            row = {
+                "source_id": source_id,
+                "repo": repo,
+                "slug": slug,
+                "memory_count": len(memories_by_issue),
+                "issue_refs": [f"#{number}" for number in sorted(memories_by_issue, key=lambda value: safe_int_string(value))],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            sink.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            sink.flush()
+            existing[key] = row
+            log(f"updated wiki context {repo}/wiki/{slug} with {len(memories_by_issue)} memory refs")
+
+
+def attach_cached_wiki_context_pages(client: ApiClient, by_source: dict[str, dict[str, Any]], wiki_map_path: Path) -> None:
+    rows = list(load_wiki_map(wiki_map_path).values())
+    loaded = 0
+    for row in rows:
+        source_id = str(row.get("source_id") or "").strip()
+        repo = str(row.get("repo") or "").strip()
+        slug = str(row.get("slug") or "").strip()
+        source = by_source.get(source_id)
+        if not source or not repo or not slug:
+            continue
+        try:
+            page = client.request("GET", f"repos/{repo}/wiki/pages/{wiki_slug_path(slug)}")
+        except Exception as error:
+            log(f"WARN cached wiki context load failed for {repo}/wiki/{slug}: {error}")
+            continue
+        if not isinstance(page, dict):
+            continue
+        source.setdefault("wiki_context_pages", []).append({
+            "slug": slug,
+            "title": str(page.get("title") or slug),
+            "body": str(page.get("body") or ""),
+        })
+        loaded += 1
+    if rows:
+        log(f"loaded {loaded}/{len(rows)} cached wiki context page(s)")
+
+
+def render_wiki_context_page(source_id: str, memories_by_issue: dict[str, Any]) -> str:
+    rows: list[tuple[str, dict[str, Any]]] = []
+    for number, memory in memories_by_issue.items():
+        if isinstance(memory, dict):
+            rows.append((str(number), memory))
+    rows.sort(key=lambda item: (
+        str(item[1].get("kind") or ""),
+        " ".join(str(topic) for topic in item[1].get("topics") or []),
+        str(item[1].get("title") or "").lower(),
+        safe_int_string(item[0]),
+    ))
+    lines = [
+        f"# LoCoMo Context: {source_id}",
+        "",
+        "Issue memories are the source of truth. This wiki page is an agent-facing context map and recall booster.",
+        "Each bullet cites the issue memory it summarizes.",
+        "",
+        "## Memory Index",
+        "",
+    ]
+    for number, memory in rows:
+        title = str(memory.get("title") or "Memory").strip() or "Memory"
+        kind = clean_kind(memory.get("kind"))
+        topics = [normalize_part(str(topic)) for topic in memory.get("topics") or [] if str(topic).strip()]
+        detail = compact_wiki_summary(str(memory.get("memory") or ""))
+        bits = [f"kind:{kind}", *[f"topic:{topic}" for topic in topics[:4]]]
+        lines.append(f"- {title} ({', '.join(bits)}). refs: #{number}")
+        if detail:
+            lines.append(f"  Summary: {detail}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def compact_wiki_summary(text: str, limit: int = 260) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3].rstrip() + "..."
+
+
+def wiki_context_slug(source_id: str) -> str:
+    return f"projects/{normalize_part(source_id)}"
+
+
+def wiki_slug_path(slug: str) -> str:
+    return urllib.parse.quote(slug, safe="")
 
 
 def render_memory_body(memory: dict[str, Any]) -> str:
@@ -1921,6 +2060,10 @@ def recall_case(
     recall_plan: str,
     recall_variant_limit: int,
     recall_reserved_slots: int,
+    wiki_context: bool,
+    wiki_context_source: str,
+    wiki_context_limit: int,
+    wiki_ref_fetch_limit: int,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     source_id = str(case.get("source_id") or "").strip()
@@ -1971,6 +2114,23 @@ def recall_case(
         candidates = reserve_candidate_slots(candidate_runs, top_k, recall_reserved_slots)
     else:
         candidates = candidate_runs[0]["candidates"] if candidate_runs else []
+    wiki_contexts: list[dict[str, Any]] = []
+    wiki_ref_candidates: list[dict[str, Any]] = []
+    if wiki_context:
+        if wiki_context_source == "map":
+            wiki_contexts = cached_wiki_contexts_for_query(source, query_text, max(1, wiki_context_limit))
+        else:
+            wiki_contexts = search_wiki_contexts(client, repo, query_text, max(1, wiki_context_limit))
+        wiki_ref_candidates = wiki_referenced_memory_candidates(
+            client,
+            repo,
+            wiki_contexts,
+            memory_rows,
+            query_text,
+            max(0, wiki_ref_fetch_limit),
+        )
+        if wiki_ref_candidates:
+            candidates = fuse_wiki_anchor_candidates(candidates, wiki_ref_candidates, top_k)
     memories = candidates[:top_k]
     debug_summary = recall_debug_summary(memories)
     selection_counts = recall_selection_counts(memories)
@@ -2002,6 +2162,11 @@ def recall_case(
             for run in candidate_runs
         ],
         "recall_candidate_count": len(candidates),
+        "wiki_context_enabled": wiki_context,
+        "wiki_context_source": wiki_context_source if wiki_context else "",
+        "wiki_context_count": len(wiki_contexts),
+        "wiki_context_slugs": [str(context.get("slug") or "") for context in wiki_contexts if context.get("slug")],
+        "wiki_ref_candidate_count": len(wiki_ref_candidates),
         "recall_ledger_candidate_count": sum(1 for memory in candidates if is_literal_anchor_memory(memory)),
         "recall_reserved_slots": max(0, recall_reserved_slots) if effective_recall_plan == "reserved" else 0,
         "recall_reserved_used": selection_counts.get("reserved", 0),
@@ -2015,7 +2180,7 @@ def recall_case(
         "search_debug_requested": search_debug,
         "search_text_matches_requested": search_text_matches,
         **debug_summary,
-    }, candidates)
+    }, candidates, wiki_contexts)
 
 
 def build_search_query(query_text: str, repo: str) -> str:
@@ -2062,6 +2227,291 @@ def search_memory_candidates(
             "text_matches": search_text_matches_payload(issue.get("text_matches")),
         })
     return candidates
+
+
+def search_wiki_contexts(client: ApiClient, repo: str, query_text: str, limit: int) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    params = {"q": build_recall_query_text(query_text, "full"), "limit": str(limit)}
+    try:
+        data = client.request("GET", f"repos/{repo}/wiki/search?{urllib.parse.urlencode(params)}")
+    except Exception:
+        return []
+    results = data.get("results") if isinstance(data, dict) else []
+    contexts: list[dict[str, Any]] = []
+    for result in results if isinstance(results, list) else []:
+        if not isinstance(result, dict):
+            continue
+        slug = str(result.get("slug") or "").strip()
+        if not slug:
+            continue
+        try:
+            page = client.request("GET", f"repos/{repo}/wiki/pages/{wiki_slug_path(slug)}")
+        except Exception:
+            continue
+        body = str(page.get("body") or "").strip() if isinstance(page, dict) else ""
+        if not body:
+            body = str(result.get("snippet") or "").strip()
+        refs = extract_wiki_issue_refs(body, query_text)
+        contexts.append({
+            "slug": slug,
+            "title": str((page if isinstance(page, dict) else {}).get("title") or result.get("title") or slug),
+            "body": body,
+            "excerpt": wiki_context_excerpt(body, query_text, refs),
+            "score": safe_float(result.get("score")),
+            "issue_refs": refs,
+        })
+    return contexts
+
+
+def cached_wiki_contexts_for_query(source: dict[str, Any], query_text: str, limit: int) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    pages = source.get("wiki_context_pages")
+    if not isinstance(pages, list):
+        return []
+    contexts: list[dict[str, Any]] = []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        body = str(page.get("body") or "").strip()
+        if not body:
+            continue
+        refs = extract_wiki_issue_refs(body, query_text)
+        contexts.append({
+            "slug": str(page.get("slug") or ""),
+            "title": str(page.get("title") or page.get("slug") or ""),
+            "body": body,
+            "excerpt": wiki_context_excerpt(body, query_text, refs),
+            "issue_refs": refs,
+            "score": wiki_context_query_score(body, query_text, refs),
+        })
+    contexts.sort(key=lambda item: -float_or(item.get("score"), 0.0))
+    return contexts[:limit]
+
+
+def wiki_context_query_score(body: str, query_text: str, refs: list[str]) -> float:
+    tokens = wiki_ref_query_tokens(query_text)
+    if not body.strip() or not tokens:
+        return float(len(refs) > 0)
+    best = 0
+    for line in body.splitlines():
+        best = max(best, wiki_ref_line_score(line, tokens))
+    return float(best + min(len(refs), 10) / 100.0)
+
+
+def wiki_referenced_memory_candidates(
+    client: ApiClient,
+    repo: str,
+    contexts: list[dict[str, Any]],
+    memory_rows: dict[str, dict[str, Any]],
+    query_text: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    del query_text
+    if limit <= 0:
+        return []
+    refs: list[tuple[int, str, str]] = []
+    seen: set[str] = set()
+    anchor_rank = 0
+    for context in contexts:
+        slug = str(context.get("slug") or "").strip()
+        for ref in context.get("issue_refs") if isinstance(context.get("issue_refs"), list) else []:
+            issue_number = local_issue_number(str(ref), repo)
+            if not issue_number or issue_number in seen:
+                continue
+            seen.add(issue_number)
+            anchor_rank += 1
+            refs.append((anchor_rank, issue_number, slug))
+            if len(refs) >= limit:
+                break
+        if len(refs) >= limit:
+            break
+
+    candidates: list[dict[str, Any]] = []
+    for anchor_rank, issue_number, slug in refs:
+        mapped = memory_rows.get(issue_number, {})
+        if mapped:
+            candidates.append({
+                "issue_number": issue_number,
+                "title": str(mapped.get("title") or "Memory"),
+                "body": render_memory_body(mapped),
+                "labels": ["type:memory", f"kind:{clean_kind(mapped.get('kind'))}"],
+                "mapped": mapped,
+                "score": 1.0 / (60.0 + anchor_rank),
+                "debug": {},
+                "text_matches": [],
+                "selection": "wiki_anchor",
+                "wiki_anchor_rank": anchor_rank,
+                "wiki_anchors": [slug] if slug else [],
+            })
+            continue
+        try:
+            issue = client.request("GET", f"repos/{repo}/issues/{issue_number}")
+        except Exception:
+            continue
+        if not isinstance(issue, dict):
+            continue
+        labels = label_names(issue.get("labels"))
+        if "type:memory" not in labels or issue.get("state") == "closed":
+            continue
+        candidates.append({
+            "issue_number": issue_number,
+            "title": str(issue.get("title") or ""),
+            "body": str(issue.get("body") or ""),
+            "labels": labels,
+            "mapped": mapped,
+            "score": 1.0 / (60.0 + anchor_rank),
+            "debug": {},
+            "text_matches": [],
+            "selection": "wiki_anchor",
+            "wiki_anchor_rank": anchor_rank,
+            "wiki_anchors": [slug] if slug else [],
+        })
+    return candidates
+
+
+def fuse_wiki_anchor_candidates(
+    direct: list[dict[str, Any]],
+    wiki_candidates: list[dict[str, Any]],
+    top_k: int,
+) -> list[dict[str, Any]]:
+    by_issue: dict[str, dict[str, Any]] = {}
+    for rank, candidate in enumerate(direct, 1):
+        issue_number = str(candidate.get("issue_number") or "").strip()
+        if not issue_number:
+            continue
+        copied = {**candidate}
+        copied["direct_rank"] = rank
+        by_issue[issue_number] = copied
+    for candidate in wiki_candidates:
+        issue_number = str(candidate.get("issue_number") or "").strip()
+        if not issue_number:
+            continue
+        existing = by_issue.get(issue_number)
+        if existing is None:
+            by_issue[issue_number] = {**candidate}
+            continue
+        existing["wiki_anchor_rank"] = min(
+            int_or(existing.get("wiki_anchor_rank"), 10**9),
+            int_or(candidate.get("wiki_anchor_rank"), 10**9),
+        )
+        existing["wiki_anchors"] = unique_nonempty([
+            *[str(value) for value in existing.get("wiki_anchors") or []],
+            *[str(value) for value in candidate.get("wiki_anchors") or []],
+        ])
+
+    fused = list(by_issue.values())
+    for candidate in fused:
+        direct_rank = int_or(candidate.get("direct_rank"), 0)
+        wiki_rank = int_or(candidate.get("wiki_anchor_rank"), 0)
+        primary = 1000.0 - direct_rank * 10.0 if direct_rank > 0 else 0.0
+        anchor = 985.0 - wiki_rank * 5.0 if wiki_rank > 0 else 0.0
+        bonus = 20.0 if direct_rank > 0 and wiki_rank > 0 else 0.0
+        candidate["wiki_fusion_score"] = max(primary, anchor) + bonus
+        if wiki_rank > 0:
+            candidate["fusion_anchor"] = "wiki_context"
+    fused.sort(key=lambda item: (
+        -float_or(item.get("wiki_fusion_score"), 0.0),
+        int_or(item.get("direct_rank"), 10**6),
+        int_or(item.get("wiki_anchor_rank"), 10**6),
+        -safe_int(item.get("issue_number")),
+    ))
+    for rank, candidate in enumerate(fused, 1):
+        candidate["fusion_rank"] = rank
+    return fused[: max(top_k, len(direct))]
+
+
+def extract_wiki_issue_refs(markdown: str, query_text: str) -> list[str]:
+    masked = mask_wiki_ignored_markdown(markdown)
+    query_tokens = wiki_ref_query_tokens(query_text)
+    scored: dict[str, dict[str, int]] = {}
+    order = 0
+    for line in masked.splitlines():
+        refs = re.findall(r"(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#\d+\b", line)
+        if not refs:
+            continue
+        score = wiki_ref_line_score(line, query_tokens)
+        for ref in refs:
+            if ref not in scored:
+                scored[ref] = {"score": score, "order": order}
+                order += 1
+            elif score > scored[ref]["score"]:
+                scored[ref]["score"] = score
+    return [
+        ref
+        for ref, _ in sorted(scored.items(), key=lambda item: (-item[1]["score"], item[1]["order"]))
+    ]
+
+
+def wiki_context_excerpt(markdown: str, query_text: str, refs: list[str], limit: int = 900) -> str:
+    text = markdown.replace("\r", "\n").strip()
+    if not text:
+        return ""
+    query_tokens = wiki_ref_query_tokens(query_text)
+    ref_set = set(refs[:10])
+    scored: list[tuple[int, int, str]] = []
+    for index, line in enumerate(text.splitlines()):
+        stripped = re.sub(r"\s+", " ", line).strip()
+        if not stripped:
+            continue
+        line_refs = set(re.findall(r"(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#\d+\b", stripped))
+        token_score = wiki_ref_line_score(stripped, query_tokens)
+        ref_score = 8 if line_refs & ref_set else 0
+        heading_score = 1 if stripped.startswith("#") else 0
+        score = ref_score + token_score + heading_score
+        if score <= 0:
+            continue
+        scored.append((-score, index, stripped))
+    if not scored:
+        return compact_wiki_summary(text, limit)
+    scored.sort()
+    selected = sorted(scored[:8], key=lambda item: item[1])
+    excerpt = "\n".join(line for _, _, line in selected)
+    return compact_wiki_summary(excerpt, limit)
+
+
+def wiki_ref_query_tokens(query_text: str) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for _, _, normalized in normalized_query_tokens(query_text):
+        token = stabilize_query_token(normalized, singularize=False).lower()
+        if (
+            token in seen
+            or token in QUERY_STOPWORDS
+            or token in GENERIC_QUERY_TERMS
+            or token in UNSTABLE_QUERY_ACTION_TERMS
+        ):
+            continue
+        if len(token) < 3 and not token.isdigit():
+            continue
+        seen.add(token)
+        out.append(token)
+        if len(out) >= 8:
+            break
+    return out
+
+
+def wiki_ref_line_score(line: str, query_tokens: list[str]) -> int:
+    lower = line.lower()
+    return sum(1 for token in query_tokens if token in lower)
+
+
+def mask_wiki_ignored_markdown(markdown: str) -> str:
+    text = re.sub(r"<!--.*?-->", lambda match: " " * len(match.group(0)), markdown, flags=re.S)
+    text = re.sub(r"```.*?```", lambda match: " " * len(match.group(0)), text, flags=re.S)
+    text = re.sub(r"`[^`\n]*`", lambda match: " " * len(match.group(0)), text)
+    return text
+
+
+def local_issue_number(ref: str, repo: str) -> str:
+    local = re.fullmatch(r"#(\d+)", ref)
+    if local:
+        return local.group(1)
+    cross = re.fullmatch(r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#(\d+)", ref)
+    if cross and cross.group(1).lower() == repo.lower():
+        return cross.group(2)
+    return ""
 
 
 def fuse_candidate_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2505,6 +2955,7 @@ def prediction_row(
     memories: list[dict[str, Any]],
     metadata: dict[str, Any],
     candidates: list[dict[str, Any]],
+    wiki_contexts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     retrieved_session_ids = []
     retrieved_turn_ids = []
@@ -2521,8 +2972,17 @@ def prediction_row(
             "For time questions, resolve supported relative phrases such as last week or yesterday against source_date, then answer with the calendar time at the requested granularity instead of repeating the relative phrase.",
             "For list, set, or profile questions, scan all recalled memories and merge compatible values instead of stopping at the first matching memory.",
             "For status, likely, or counterfactual questions, answer from explicit memory wording or supported inferences only; include uncertainty when the memory says the source does not state something directly.",
+            "Wiki context maps, if present below, are orientation and recall boosters; issue memories remain the source of truth.",
             "",
         ])
+    for context in (wiki_contexts or [])[:3]:
+        body = compact_wiki_summary(str(context.get("excerpt") or context.get("body") or ""), 900)
+        if not body:
+            continue
+        refs = [str(ref) for ref in context.get("issue_refs") or [] if str(ref).strip()]
+        lines.append(f"Wiki context [{context.get('slug')}] refs={', '.join(refs[:10])}: {body}")
+    if wiki_contexts:
+        lines.append("")
     for memory in memories:
         mapped = memory.get("mapped") if isinstance(memory.get("mapped"), dict) else {}
         retrieved_session_ids.append(str(mapped.get("session_id") or "").strip())
@@ -2605,6 +3065,11 @@ def safe_float(value: Any) -> float | None:
 
 def safe_int(value: Any) -> int:
     return int(value) if isinstance(value, (int, float)) else 0
+
+
+def safe_int_string(value: Any) -> int:
+    text = str(value or "").strip()
+    return int(text) if text.isdigit() else 0
 
 
 def int_or(value: Any, default: int) -> int:
@@ -2748,6 +3213,14 @@ def memory_fusion_payload(memory: dict[str, Any]) -> dict[str, Any]:
         payload["best_variant_priority"] = int(memory["best_variant_priority"])
     if isinstance(memory.get("backend_score"), (int, float)):
         payload["backend_score"] = float(memory["backend_score"])
+    if isinstance(memory.get("wiki_anchor_rank"), (int, float)):
+        payload["wiki_anchor_rank"] = int(memory["wiki_anchor_rank"])
+    if isinstance(memory.get("wiki_fusion_score"), (int, float)):
+        payload["wiki_fusion_score"] = float(memory["wiki_fusion_score"])
+    if isinstance(memory.get("direct_rank"), (int, float)):
+        payload["direct_rank"] = int(memory["direct_rank"])
+    if isinstance(memory.get("wiki_anchors"), list):
+        payload["wiki_anchors"] = [str(value) for value in memory["wiki_anchors"] if str(value).strip()]
     return payload
 
 
@@ -2797,6 +3270,18 @@ def load_memory_map(path: Path) -> dict[str, dict[str, Any]]:
         key = str(row.get("memory_key") or stable_memory_key(row)).strip()
         if key:
             out[key] = row
+    return out
+
+
+def load_wiki_map(path: Path) -> dict[str, dict[str, Any]]:
+    out = {}
+    if not path.exists():
+        return out
+    for row in read_jsonl(path):
+        repo = str(row.get("repo") or "").strip()
+        slug = str(row.get("slug") or "").strip()
+        if repo and slug:
+            out[f"{repo}:{slug}"] = row
     return out
 
 

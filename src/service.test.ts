@@ -97,6 +97,26 @@ function testBuildAutoRecallContext(): void {
   assert(context.includes("Source refs: #123"), "expected source refs to survive auto-recall context");
 }
 
+function testBuildAutoRecallContextWithWikiContext(): void {
+  const context = buildAutoRecallContext({
+    wikiContexts: [{
+      slug: "projects/clawmem",
+      title: "ClawMem",
+      body: "# Project: ClawMem\n\n- Issue memory is source of truth. refs: #12",
+      issueRefs: ["#12"],
+    }],
+    memories: [
+      { memoryId: "12", detail: "Issue memory is source of truth for atomic memories.", wikiAnchors: ["projects/clawmem"] },
+    ],
+  });
+
+  assert(context.includes("<clawmem-wiki-contexts>"), "expected wiki context wrapper");
+  assert(context.includes("context maps"), "expected wiki context to be framed as a map");
+  assert(context.includes('slug="projects/clawmem"'), "expected wiki slug to be included");
+  assert(context.includes("Issue memory is source of truth. refs: #12"), "expected wiki body to be included");
+  assert(context.includes("Wiki anchors: projects/clawmem"), "expected memory wiki anchor to be included");
+}
+
 function testBuildClawMemPromptSection(): void {
   const lines = buildClawMemPromptSection({
     availableTools: new Set([
@@ -113,6 +133,7 @@ function testBuildClawMemPromptSection(): void {
   assert(prompt.includes("GitHub-native operations through `gh` or `gh api`"), "expected skill-driven GitHub guidance");
   assert(prompt.includes("Do not look for `memory_store`, `memory_update`, `memory_forget`"), "expected old CRUD tool avoidance");
   assert(prompt.includes("Normal recall is memory-first"), "expected memory-first serving guidance");
+  assert(prompt.includes("Wiki pages, when present, are agent-facing context maps"), "expected wiki context map guidance");
   assert(prompt.includes("keep memory text answer-complete with exact values"), "expected answer-complete memory guidance");
   assert(prompt.includes("label discovery"), "expected repo/label discovery to be delegated to the skill");
   assert(prompt.includes("`clawmem_status`, `clawmem_sync`, and `clawmem_maintain`"), "expected operational tool guidance");
@@ -641,6 +662,7 @@ testExtractPromptFallsBackToLatestUserMessage();
 testExtractPromptFromPromptField();
 testExtractPromptFromStructuredContent();
 testBuildAutoRecallContext();
+testBuildAutoRecallContextWithWikiContext();
 testBuildClawMemPromptSection();
 testResolveHostVersionFromRuntime();
 testResolveHostVersionFromEnvFallback();

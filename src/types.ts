@@ -63,5 +63,5 @@ export type TranscriptSnapshot = { sessionId?: string; messages: NormalizedMessa
 export type ParsedMemoryIssue = {
   issueNumber: number; title: string; memoryId: string; memoryHash?: string;
   date: string; detail: string;
-  kind?: string; topics?: string[]; sourceRefs?: string[]; status: "active" | "stale";
+  kind?: string; topics?: string[]; sourceRefs?: string[]; wikiAnchors?: string[]; status: "active" | "stale";
 };

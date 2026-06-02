@@ -8,6 +8,9 @@ description: GitHub-native durable memory workflows for the ClawMem OpenClaw plu
 ClawMem is the active long-term memory system for this OpenClaw installation.
 It uses a GitHub-compatible backend: issues are records, comments are history,
 labels are schema, references are relations, and issue state is lifecycle.
+Issue memory carries atomic durable memory. Wiki pages carry agent-facing
+context maps. Wiki context can boost recall and restore background quickly, but
+it is not memory ground truth.
 
 The plugin is intentionally small. It provisions credentials, mirrors every
 real user/assistant transcript into `type:conversation` issues, injects compact
@@ -32,6 +35,8 @@ Use ClawMem the way a careful human uses GitHub:
 - update the canonical issue instead of creating duplicates
 - close stale records with a reason
 - link source conversations and related records with `#123` references
+- keep important context maps in wiki pages, with visible `#123` references to
+  the issue memories they summarize
 - respect repo, org, team, and collaborator boundaries
 - leave an auditable trail for the next collaborator
 
@@ -39,6 +44,11 @@ The transcript mirror is mandatory episodic memory. Durable memories are
 distilled `type:memory` issues derived from those conversations or other source
 artifacts. The transcript mirror is provenance, audit trail, and rebuild input;
 it is not the normal online recall layer.
+
+Wiki pages are context maps, not a third record layer. Use them for current
+project/user/topic/workflow background that an agent should recover quickly.
+When a wiki page conflicts with an open memory issue, trust the issue and update
+the wiki.
 
 ## Turn Loop
 
@@ -50,10 +60,14 @@ On every user turn:
 3. If any explicit ClawMem memory operation is needed, resolve the route, list
    repos, choose the repo, and list labels for that repo.
 4. If explicit recall is still needed, search only the chosen repo and only
-   `type:memory` issues.
+   `type:memory` issues. Search wiki pages in parallel only as context and
+   ranking hints, never as a filter before issue recall.
 5. After answering, ask whether the turn produced durable local alpha.
 6. If it did, create, update, close, or deliberately skip self-contained memory
    issues through GitHub operations.
+7. If the resulting memory is important, frequently reused, cross-task, or
+   needed for agent startup context, update the relevant wiki context page after
+   the issue memory exists.
 
 Local alpha means knowledge specific to this person, team, repo, environment,
 decision, failure, preference, or procedure. Do not store generic public
@@ -141,6 +155,45 @@ GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
     --json number,title,body,state,labels,comments
 ```
 
+### Wiki Context Recall
+
+Wiki recall is a booster, not a gate. Always search issue memories directly.
+Then search wiki pages for context maps and issue references that may explain or
+boost related memories:
+
+```sh
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh api -X GET "repos/$CLAWMEM_REPO/wiki/search" \
+    -f q="<short query>" \
+    -f limit=3
+```
+
+Fetch only the top one to three full pages when the search result looks
+relevant:
+
+```sh
+encoded_slug="$(jq -rn --arg s "<slug>" '$s|@uri')"
+
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh api "repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug" \
+    --jq '{slug,title,body,sha}'
+```
+
+Use wiki pages this way:
+
+- include the page as compact background context when it is relevant
+- parse visible `#123` or `owner/repo#123` references from the page body
+- inspect referenced issues only when they are `type:memory` records in scope
+- treat referenced memories as boosted candidates, not as the only candidates
+- ignore wiki prose that is not supported by visible issue references when it
+  would materially affect the answer
+- if wiki and issue memory disagree, answer from the open issue memory and
+  repair the wiki later
+
+Do not route normal answers through raw transcript issues just because a wiki
+page references them. If raw transcript content is answer-bearing, repair the
+durable memory issue.
+
 When debugging recall quality, ask the backend for search observability:
 
 ```sh
@@ -178,6 +231,10 @@ as provenance for audit, repair, or rebuilding memories. Do not use source
 conversation issues as the normal answer path. If information is needed for
 future recall or answering, update the memory issue so `## Memory` contains it
 directly.
+
+When auto-recalled context includes a wiki page, treat it as an orientation map.
+Use it to understand project/user/topic background and to follow visible issue
+references, but do not treat it as a replacement for issue memories.
 
 Use question-aware recall when literal anchor ledgers exist:
 
@@ -229,6 +286,11 @@ Before writing, search for duplicates and conflicts. Keep one canonical open
 issue per living fact when practical. Always use the selected repo and its
 observed label vocabulary; create missing required labels before creating or
 editing memory issues.
+
+Write durable information to issue memory first. Only after the issue exists,
+decide whether the memory should be summarized into wiki context. Promote a
+memory into wiki only when it is high-importance, high-frequency, cross-task,
+current project/user/topic background, or useful for fast agent startup.
 
 Use answerable retention. The visible memory text must be sufficient for future
 recall and answering without going back to raw transcript text. This does not

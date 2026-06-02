@@ -1,11 +1,13 @@
 // Memory recall search helpers. Durable memory writes are skill-driven through GitHub-native operations.
 import { extractLabelNames, labelVal } from "./config.js";
-import type { GitHubIssueClient } from "./github-client.js";
+import type { GitHubIssueClient, WikiPageResponse, WikiSearchResultResponse } from "./github-client.js";
 import type { ParsedMemoryIssue } from "./types.js";
 import { parseFlatYaml } from "./yaml.js";
 import { sanitizeRecallQueryInput } from "./recall-sanitize.js";
 
 const MAX_BACKEND_QUERY_CHARS = 1500;
+const MAX_WIKI_CONTEXT_PAGES = 3;
+const MAX_WIKI_REF_MEMORY_FETCHES = 6;
 const DEFAULT_LITERAL_REPAIR_SLOTS = 1;
 const DEFAULT_PLANNER_VARIANT_LIMIT = 6;
 const MIN_PLANNER_VARIANT_LIMIT = 1;
@@ -82,6 +84,20 @@ type MemoryStoreOptions = {
   plannerVariantLimit?: number;
 };
 
+export type WikiContextPage = {
+  slug: string;
+  title: string;
+  body: string;
+  excerpt?: string;
+  snippet?: string;
+  score?: number;
+  issueRefs: string[];
+};
+export type RecallBundle = {
+  memories: ParsedMemoryIssue[];
+  wikiContexts: WikiContextPage[];
+};
+
 type SearchIssue = {
   number: number;
   title?: string;
@@ -98,6 +114,18 @@ type PlannedCandidate = {
   bestRank: number;
   bestPriority: number;
 };
+type WikiAnchoredMemory = {
+  memory: ParsedMemoryIssue;
+  anchorRank: number;
+  wikiAnchors: string[];
+};
+type RecallCandidate = {
+  memory: ParsedMemoryIssue;
+  issueNumber: number;
+  primaryRank?: number;
+  anchorRank?: number;
+  wikiAnchors: string[];
+};
 
 export class MemoryStore {
   constructor(private readonly client: GitHubIssueClient, private readonly options: MemoryStoreOptions = {}) {}
@@ -106,6 +134,24 @@ export class MemoryStore {
     const q = normalizeSearch(query);
     if (!q) return [];
     return this.searchViaBackend(query, limit);
+  }
+
+  async searchWithContext(query: string, limit: number): Promise<RecallBundle> {
+    const q = normalizeSearch(query);
+    if (!q) return { memories: [], wikiContexts: [] };
+
+    const repo = this.client.repo();
+    if (!repo) throw new Error("ClawMem memory recall requires a configured repo.");
+    const primaryLimit = Math.min(20, Math.max(limit, limit + MAX_WIKI_REF_MEMORY_FETCHES));
+    const primary = await this.searchViaBackend(query, primaryLimit);
+    const wikiContexts = await this.searchWikiContexts(query, repo);
+    if (wikiContexts.length === 0) return { memories: primary.slice(0, limit), wikiContexts };
+
+    const anchored = await this.loadWikiReferencedMemories(wikiContexts, repo);
+    return {
+      memories: rankRecallCandidates(primary, anchored, limit),
+      wikiContexts,
+    };
   }
 
   private async searchViaBackend(query: string, limit: number): Promise<ParsedMemoryIssue[]> {
@@ -223,6 +269,56 @@ export class MemoryStore {
       && LITERAL_QUESTION_RE.test(query);
   }
 
+  private async searchWikiContexts(query: string, _repo: string): Promise<WikiContextPage[]> {
+    try {
+      const searchText = buildRecallSearchText(query);
+      if (!searchText) return [];
+      const results = await this.client.searchWikiPages(searchText, { limit: MAX_WIKI_CONTEXT_PAGES });
+      const pages = await Promise.all(results.slice(0, MAX_WIKI_CONTEXT_PAGES).map(async (result): Promise<WikiContextPage | null> => {
+        const slug = readWikiSlug(result);
+        if (!slug) return null;
+        const page = await this.client.getWikiPage(slug);
+        return wikiContextFromPage(page, result, searchText);
+      }));
+      return pages.filter((page): page is WikiContextPage => page !== null);
+    } catch {
+      return [];
+    }
+  }
+
+  private async loadWikiReferencedMemories(contexts: WikiContextPage[], repo: string): Promise<WikiAnchoredMemory[]> {
+    const refs: Array<{ issueNumber: number; anchorRank: number; slug: string }> = [];
+    const seen = new Set<number>();
+    let rank = 0;
+    for (const context of contexts) {
+      for (const issueNumber of localIssueNumbers(context.issueRefs, repo)) {
+        if (seen.has(issueNumber)) continue;
+        seen.add(issueNumber);
+        rank += 1;
+        refs.push({ issueNumber, anchorRank: rank, slug: context.slug });
+        if (refs.length >= MAX_WIKI_REF_MEMORY_FETCHES) break;
+      }
+      if (refs.length >= MAX_WIKI_REF_MEMORY_FETCHES) break;
+    }
+
+    const anchored = await Promise.all(refs.map(async (ref): Promise<WikiAnchoredMemory | null> => {
+      try {
+        const memory = this.parseIssue(await this.client.getIssue(ref.issueNumber));
+        if (!memory || memory.status !== "active") return null;
+        return {
+          memory,
+          anchorRank: ref.anchorRank,
+          wikiAnchors: [ref.slug],
+        };
+      } catch {
+        // Wiki references are booster signals. A missing or non-memory issue
+        // should not interrupt direct memory recall.
+        return null;
+      }
+    }));
+    return anchored.filter((memory): memory is WikiAnchoredMemory => memory !== null);
+  }
+
   private parseIssue(issue: SearchIssue): ParsedMemoryIssue | null {
     const labels = extractLabelNames(issue.labels);
     if (!labels.includes("type:memory")) return null;
@@ -279,6 +375,175 @@ function extractSourceRefs(markdown: string): string[] {
     for (const ref of line.match(/(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#\d+/g) ?? []) refs.add(ref);
   }
   return [...refs];
+}
+
+function rankRecallCandidates(primary: ParsedMemoryIssue[], anchored: WikiAnchoredMemory[], limit: number): ParsedMemoryIssue[] {
+  const byIssue = new Map<number, RecallCandidate>();
+  for (const [index, memory] of primary.entries()) {
+    byIssue.set(memory.issueNumber, {
+      memory,
+      issueNumber: memory.issueNumber,
+      primaryRank: index + 1,
+      wikiAnchors: memory.wikiAnchors ?? [],
+    });
+  }
+  for (const item of anchored) {
+    const existing = byIssue.get(item.memory.issueNumber);
+    if (!existing) {
+      byIssue.set(item.memory.issueNumber, {
+        memory: item.memory,
+        issueNumber: item.memory.issueNumber,
+        anchorRank: item.anchorRank,
+        wikiAnchors: item.wikiAnchors,
+      });
+      continue;
+    }
+    existing.anchorRank = existing.anchorRank === undefined ? item.anchorRank : Math.min(existing.anchorRank, item.anchorRank);
+    existing.wikiAnchors = uniqueTokens([...existing.wikiAnchors, ...item.wikiAnchors]);
+  }
+
+  return [...byIssue.values()]
+    .sort((a, b) => recallCandidateScore(b) - recallCandidateScore(a) || a.issueNumber - b.issueNumber)
+    .slice(0, limit)
+    .map((candidate) => ({
+      ...candidate.memory,
+      ...(candidate.wikiAnchors.length > 0 ? { wikiAnchors: candidate.wikiAnchors } : {}),
+    }));
+}
+
+function recallCandidateScore(candidate: RecallCandidate): number {
+  const primary = candidate.primaryRank !== undefined ? 1000 - candidate.primaryRank * 10 : 0;
+  const anchor = candidate.anchorRank !== undefined ? 985 - candidate.anchorRank * 5 : 0;
+  const bonus = candidate.primaryRank !== undefined && candidate.anchorRank !== undefined ? 20 : 0;
+  return Math.max(primary, anchor) + bonus;
+}
+
+function readWikiSlug(result: WikiSearchResultResponse): string {
+  return typeof result.slug === "string" ? result.slug.trim() : "";
+}
+
+function wikiContextFromPage(page: WikiPageResponse, result: WikiSearchResultResponse, query: string): WikiContextPage | null {
+  const slug = typeof page.slug === "string" && page.slug.trim() ? page.slug.trim() : readWikiSlug(result);
+  if (!slug) return null;
+  const body = typeof page.body === "string" ? page.body.trim() : "";
+  const snippet = typeof result.snippet === "string" && result.snippet.trim() ? result.snippet.trim() : undefined;
+  if (!body && !snippet) return null;
+  const title = typeof page.title === "string" && page.title.trim()
+    ? page.title.trim()
+    : typeof result.title === "string" && result.title.trim()
+      ? result.title.trim()
+      : slug;
+  const score = typeof result.score === "number" && Number.isFinite(result.score) ? result.score : undefined;
+  const fullText = body || snippet || "";
+  const issueRefs = extractIssueRefs(fullText, query);
+  return {
+    slug,
+    title,
+    body: fullText,
+    excerpt: wikiContextExcerpt(fullText, query, issueRefs),
+    ...(snippet ? { snippet } : {}),
+    ...(score !== undefined ? { score } : {}),
+    issueRefs,
+  };
+}
+
+function extractIssueRefs(markdown: string, query = ""): string[] {
+  const masked = maskIssueReferenceIgnoredMarkdown(markdown);
+  const scored = new Map<string, { score: number; order: number }>();
+  const queryTokens = wikiRefQueryTokens(query);
+  let order = 0;
+  for (const line of masked.split(/\r?\n/)) {
+    const refs = line.match(/(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#\d+\b/g) ?? [];
+    if (refs.length === 0) continue;
+    const score = wikiRefLineScore(line, queryTokens);
+    for (const ref of refs) {
+      const existing = scored.get(ref);
+      if (!existing) {
+        scored.set(ref, { score, order });
+        order += 1;
+        continue;
+      }
+      if (score > existing.score) existing.score = score;
+    }
+  }
+  return [...scored.entries()]
+    .sort((a, b) => b[1].score - a[1].score || a[1].order - b[1].order)
+    .map(([ref]) => ref);
+}
+
+function wikiRefQueryTokens(query: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of normalizedQueryTokens(query)) {
+    const key = stabilizeQueryToken(item.normalized, false).toLowerCase();
+    if (seen.has(key) || shouldDropCompactToken(key)) continue;
+    if (key.length < 3 && !/^\d+$/.test(key)) continue;
+    seen.add(key);
+    out.push(key);
+  }
+  return out.slice(0, 8);
+}
+
+function wikiRefLineScore(line: string, queryTokens: string[]): number {
+  if (queryTokens.length === 0) return 0;
+  const lower = line.toLowerCase();
+  let score = 0;
+  for (const token of queryTokens) {
+    if (lower.includes(token)) score += 1;
+  }
+  return score;
+}
+
+function wikiContextExcerpt(markdown: string, query: string, refs: string[], maxChars = 1600): string {
+  const text = markdown.replace(/\r/g, "\n").trim();
+  if (!text) return "";
+  const queryTokens = wikiRefQueryTokens(query);
+  const refSet = new Set(refs.slice(0, 10));
+  const scored: Array<{ score: number; index: number; line: string }> = [];
+  for (const [index, line] of text.split(/\n/).entries()) {
+    const stripped = line.replace(/\s+/g, " ").trim();
+    if (!stripped) continue;
+    const lineRefs = stripped.match(/(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#\d+\b/g) ?? [];
+    const refScore = lineRefs.some((ref) => refSet.has(ref)) ? 8 : 0;
+    const tokenScore = wikiRefLineScore(stripped, queryTokens);
+    const headingScore = stripped.startsWith("#") ? 1 : 0;
+    const score = refScore + tokenScore + headingScore;
+    if (score <= 0) continue;
+    scored.push({ score, index, line: stripped });
+  }
+  if (scored.length === 0) return compactWikiText(text, maxChars);
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  const selected = scored.slice(0, 8).sort((a, b) => a.index - b.index).map((item) => item.line).join("\n");
+  return compactWikiText(selected, maxChars);
+}
+
+function compactWikiText(text: string, maxChars: number): string {
+  const compact = text.trim();
+  if (compact.length <= maxChars) return compact;
+  return `${compact.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function localIssueNumbers(refs: string[], repo: string): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  const repoKey = repo.toLowerCase();
+  for (const ref of refs) {
+    const local = /^#(\d+)$/.exec(ref);
+    const cross = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#(\d+)$/.exec(ref);
+    const rawNumber = local?.[1] ?? (cross?.[1]?.toLowerCase() === repoKey ? cross?.[2] : undefined);
+    const issueNumber = rawNumber ? Number(rawNumber) : 0;
+    if (!Number.isInteger(issueNumber) || issueNumber <= 0 || seen.has(issueNumber)) continue;
+    seen.add(issueNumber);
+    out.push(issueNumber);
+  }
+  return out;
+}
+
+function maskIssueReferenceIgnoredMarkdown(body: string): string {
+  return body
+    .replace(/<!--[\s\S]*?-->/g, (match) => " ".repeat(match.length))
+    .replace(/```[\s\S]*?```/g, (match) => " ".repeat(match.length))
+    .replace(/`[^`\n]*`/g, (match) => " ".repeat(match.length));
 }
 
 function normalizeSearch(v: string): string {

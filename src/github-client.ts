@@ -7,6 +7,27 @@ type IssueResponse = {
   debug?: { search_path?: string; lexical_rank?: number; semantic_rank?: number };
 };
 type SearchIssuesResponse = { items?: IssueResponse[]; total_count?: number; incomplete_results?: boolean };
+export type WikiSearchResultResponse = {
+  slug?: string;
+  title?: string;
+  score?: number;
+  snippet?: string;
+  labels?: Array<{ name?: string } | string>;
+};
+type WikiSearchResponse = {
+  results?: WikiSearchResultResponse[];
+  query?: string;
+  method?: string;
+  elapsed_ms?: number;
+};
+export type WikiPageResponse = {
+  slug?: string;
+  title?: string;
+  body?: string;
+  sha?: string;
+  labels?: Array<{ name?: string } | string>;
+  updated_at?: string;
+};
 type CommentResponse = { id?: number; body?: string; created_at?: string };
 type LabelResponse = { name?: string; color?: string; description?: string };
 type PermissionMap = Record<string, boolean | undefined>;
@@ -120,6 +141,19 @@ export class GitHubIssueClient {
     if (params?.textMatches) q.set("text_matches", "true");
     const res = await this.req<SearchIssuesResponse>(`search/issues?${q}`, { method: "GET" });
     return Array.isArray(res?.items) ? res.items : [];
+  }
+  async searchWikiPages(query: string, params?: { limit?: number; offset?: number; labels?: string[]; excludeLabels?: string[] }): Promise<WikiSearchResultResponse[]> {
+    const q = new URLSearchParams();
+    q.set("q", query);
+    q.set("limit", String(params?.limit ?? 3));
+    q.set("offset", String(params?.offset ?? 0));
+    for (const label of params?.labels ?? []) q.append("labels", label);
+    for (const label of params?.excludeLabels ?? []) q.append("exclude_labels", label);
+    const res = await this.req<WikiSearchResponse>(`${this.repoPath("wiki/search")}?${q}`, { method: "GET" });
+    return Array.isArray(res?.results) ? res.results : [];
+  }
+  async getWikiPage(slug: string): Promise<WikiPageResponse> {
+    return this.req<WikiPageResponse>(this.repoPath(`wiki/pages/${encodeURIComponent(slug)}`), { method: "GET" });
   }
   async listLabels(params?: { page?: number; perPage?: number }): Promise<LabelResponse[]> {
     const q = new URLSearchParams();

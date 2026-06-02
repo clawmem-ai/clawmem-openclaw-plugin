@@ -11,13 +11,65 @@ ClawMem uses GitHub-native records:
 - `type:memory`: durable distilled memory
 
 Do not add extra layer labels. The layer is represented by the record form:
-conversation issues for episodes, memory issues for distilled knowledge, and
-skills/docs/runbooks for executable procedure.
+conversation issues for episodes, memory issues for distilled knowledge, wiki
+pages for context maps, and skills/docs/runbooks for executable procedure.
 
 Conversation issues are provenance, audit trail, and rebuild input. They are
 not the normal online recall layer. If a fact, date, preference, decision,
 rule, skill trigger, lesson, profile note, or insight matters for future recall
 or answering, write it into a `type:memory` issue.
+
+## Wiki Context Maps
+
+Issue memory carries atomic durable memory. Wiki pages carry context maps for
+agents. A wiki page can summarize current project/user/topic/workflow context,
+but it is not memory ground truth and must not become the only recall path.
+
+Write issue memory first. Then update wiki only when the memory is important,
+frequently reused, cross-task, current background, or useful for fast agent
+startup.
+
+Recommended wiki page families:
+
+- `users/{user}`
+- `projects/{project}`
+- `topics/{topic}`
+- `decisions/{area}`
+- `workflows/{workflow}`
+
+Avoid default `sessions/*` pages because `type:conversation` issues already
+mirror raw sessions. Use `sessions/*` only for curated, important run summaries.
+
+Wiki pages should cite the issue memories they summarize with visible Markdown
+references:
+
+```markdown
+# Project: ClawMem Memory Architecture
+
+## Current Position
+
+ClawMem uses issue memories as atomic durable records and wiki pages as
+agent-facing context maps.
+
+## Stable Decisions
+
+- Issue memory is the source of truth for atomic memory. refs: #12
+- Wiki context provides orientation and recall boosting, not complete recall.
+  refs: #18
+- Retrieval searches issue memories directly in parallel with wiki search.
+  refs: #24
+```
+
+Rules:
+
+- wiki prose should summarize, not duplicate every memory
+- important wiki claims should cite issue memories with visible `#123` or
+  `owner/repo#123` references
+- wiki references are relation and ranking signals, not filters
+- if wiki conflicts with an open memory issue, trust the issue and update the
+  wiki
+- do not encode wiki truth in labels or hidden metadata
+- wiki labels, when present, are optional search/routing hints only
 
 ## Labels
 

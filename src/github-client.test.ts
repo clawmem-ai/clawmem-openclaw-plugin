@@ -108,6 +108,22 @@ async function testSearchIssuesPassesDebugFlags(): Promise<void> {
   }
 }
 
+async function testWikiRoutes(): Promise<void> {
+  const { client, calls, restore } = createClientRecorder();
+  try {
+    await client.searchWikiPages("memory architecture", { limit: 3, labels: ["context:project"] });
+    await client.getWikiPage("projects/clawmem");
+    const searchURL = new URL(calls[0]?.url ?? "");
+    assert(searchURL.pathname === "/api/v3/repos/alice/memory/wiki/search", "expected wiki search route");
+    assert(searchURL.searchParams.get("q") === "memory architecture", "expected wiki search query");
+    assert(searchURL.searchParams.get("limit") === "3", "expected wiki search limit");
+    assert(searchURL.searchParams.get("labels") === "context:project", "expected wiki label filter");
+    assert(calls[1]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/wiki/pages/projects%2Fclawmem", "expected nested wiki slug to be path-escaped");
+  } finally {
+    restore();
+  }
+}
+
 async function testTransientFailuresAreRetried(): Promise<void> {
   const calls: FetchCall[] = [];
   const originalFetch = globalThis.fetch;
@@ -171,6 +187,7 @@ await testOrgGovernanceRoutes();
 await testTeamGovernanceRoutes();
 await testRepoTransferRoute();
 await testSearchIssuesPassesDebugFlags();
+await testWikiRoutes();
 await testTransientFailuresAreRetried();
 await testWriteRequestsAreNotBlindlyRetried();
 

@@ -135,6 +135,123 @@ issues the normal answer path. If the source contains information that future
 agents need for recall or answering, update the memory issue so `## Memory`
 contains that information directly.
 
+## Wiki Context Recall
+
+Wiki pages are context maps. They help restore background and boost issue
+memories referenced from the page, but they are not memory ground truth. Always
+run direct `type:memory` issue recall in parallel.
+
+Search wiki pages after repo preflight:
+
+```sh
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh api -X GET "repos/$CLAWMEM_REPO/wiki/search" \
+    -f q="<short query>" \
+    -f limit=3 \
+    --jq '.results[] | {slug,title,score,snippet,labels}'
+```
+
+Fetch full pages only for the top relevant results:
+
+```sh
+slug="<wiki-slug>"
+encoded_slug="$(jq -rn --arg s "$slug" '$s|@uri')"
+
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh api "repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug" \
+    --jq '{slug,title,body,sha,labels}'
+```
+
+Use visible issue references in wiki bodies as relation signals:
+
+- `#123` references an issue in the selected repo
+- `owner/repo#123` references a cross-repo issue
+- references inside code blocks or hidden comments should not count
+- referenced `type:memory` issues can be boosted or inspected
+- referenced `type:conversation` issues remain provenance, not normal recall
+
+Do not use `query -> wiki -> refs -> memories` as the only recall path. That
+misses orphan memories that have not been organized into wiki pages.
+
+## Wiki Context Maintenance
+
+Create or update issue memory first. Update wiki only for memories that are
+important, frequently reused, cross-task, current project/user/topic background,
+or useful for fast agent startup.
+
+Recommended wiki page families:
+
+```text
+users/{user}
+projects/{project}
+topics/{topic}
+decisions/{area}
+workflows/{workflow}
+```
+
+Avoid default `sessions/*` wiki pages. Conversation issues already mirror raw
+sessions; use `sessions/*` only for curated, important run summaries.
+
+Wiki pages should summarize the current useful view and cite issue memories:
+
+```markdown
+# Project: ClawMem Memory Architecture
+
+## Current Position
+
+ClawMem uses issue memories as atomic durable records and wiki pages as
+agent-facing context maps.
+
+## Stable Decisions
+
+- Issue memory is the source of truth for atomic memory. refs: #12
+- Wiki context provides orientation and recall boosting, not complete recall.
+  refs: #18
+- Retrieval searches issue memories directly in parallel with wiki search.
+  refs: #24
+```
+
+Do not copy every memory into wiki. Do not put unsupported claims into wiki
+without visible issue refs when the claim matters for future action.
+
+Read the current page before editing:
+
+```sh
+slug="projects/clawmem-memory-architecture"
+encoded_slug="$(jq -rn --arg s "$slug" '$s|@uri')"
+page_json="$(mktemp)"
+
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh api "repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug" \
+    >"$page_json" 2>/dev/null || true
+
+sha="$(jq -r '.sha // empty' "$page_json" 2>/dev/null)"
+```
+
+Write the updated summary with optimistic concurrency when a SHA exists:
+
+```sh
+body_file="$(mktemp)"
+payload_file="$(mktemp)"
+
+# Edit body_file with the full desired wiki page body.
+
+jq -n \
+  --rawfile body "$body_file" \
+  --arg message "Update wiki context: $slug" \
+  --arg sha "$sha" \
+  '{body:$body,message:$message} + (if $sha == "" then {} else {sha:$sha} end)' \
+  >"$payload_file"
+
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh api -X PUT "repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug" \
+    --input "$payload_file"
+```
+
+If the backend returns a conflict, re-read the page, merge the current body with
+your intended changes, and retry with the new SHA. Wiki summaries can be edited
+in place because they are current views, not ground-truth memory records.
+
 For recall debugging, request backend search observability:
 
 ```sh
@@ -426,6 +543,8 @@ Write normal GitHub references in bodies and comments:
 Use these references as the durable relation notation. Do not maintain a
 separate relation table in memory issue bodies; when GitHub-compatible link or
 backlink support is available, the same references should become navigable.
+The same rule applies to wiki pages: use visible `#123` references in wiki
+summary bullets so the backend can create native cross-reference visibility.
 
 ## Troubleshooting
 
@@ -437,6 +556,7 @@ backlink support is available, the same references should become navigable.
 | Mirror reports an error | Run `clawmem_sync` with `sessionId` and the same `repo`; finalization should wait until the missing transcript comments are repaired |
 | Summary/finalization is stale | Run `clawmem_maintain` |
 | Recall is weak | Search with shorter terms, inspect exact issues, and expand through linked references |
+| Wiki context is stale | Trust the open memory issue, then update the wiki summary with visible refs |
 | Duplicate memory exists | Update/close issues so one canonical open issue remains |
 
 ## Autonomy
@@ -448,6 +568,7 @@ Allowed without extra confirmation:
 - add comments
 - create reusable labels
 - close stale memory issues with a reason
+- update wiki context pages after the referenced issue memory exists
 
 Requires explicit user confirmation:
 

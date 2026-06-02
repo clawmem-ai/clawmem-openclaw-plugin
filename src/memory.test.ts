@@ -338,6 +338,79 @@ async function testClosedIssuesAreFilteredFromRecall(): Promise<void> {
   assert(found[0]?.issueNumber === 9, "expected open memory issue to remain");
 }
 
+async function testWikiContextBoostsReferencedMemoryIssues(): Promise<void> {
+  const viewed: number[] = [];
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async () => [
+      markdownMemory({ issueNumber: 1, title: "Memory: primary one", detail: "Primary memory one." }),
+      markdownMemory({ issueNumber: 2, title: "Memory: primary two", detail: "Primary memory two." }),
+      markdownMemory({ issueNumber: 3, title: "Memory: primary three", detail: "Primary memory three." }),
+    ],
+    searchWikiPages: async () => [{
+      slug: "projects/clawmem",
+      title: "ClawMem",
+      score: 10,
+      snippet: "Architecture context refs: #99",
+    }],
+    getWikiPage: async () => ({
+      slug: "projects/clawmem",
+      title: "ClawMem",
+      body: [
+        "# Project: ClawMem",
+        "",
+        "- Wiki is a context map, not memory ground truth. refs: #99",
+        "- Conversation refs stay provenance. refs: #77",
+        "```",
+        "#66 should not count from code.",
+        "```",
+      ].join("\n"),
+    }),
+    getIssue: async (n: number) => {
+      viewed.push(n);
+      if (n === 99) {
+        return markdownMemory({
+          issueNumber: 99,
+          title: "Memory: wiki architecture",
+          detail: "ClawMem wiki pages are context maps and issue memories are source of truth.",
+          kind: "decision",
+        });
+      }
+      return {
+        number: n,
+        title: "Conversation source",
+        body: "Raw transcript provenance.",
+        state: "open",
+        labels: ["type:conversation"],
+      };
+    },
+  };
+  const store = new MemoryStore(client as never);
+  const bundle = await store.searchWithContext("clawmem architecture wiki", 3);
+
+  assert(bundle.wikiContexts.length === 1, "expected relevant wiki context to be returned");
+  assert(JSON.stringify(bundle.wikiContexts[0]?.issueRefs) === JSON.stringify(["#99", "#77"]), "expected wiki refs to ignore code blocks");
+  assert(viewed.includes(99), "expected referenced memory issue to be inspected");
+  assert(viewed.includes(77), "expected referenced conversation issue to be inspected and filtered out");
+  assert(bundle.memories.map((memory) => memory.issueNumber).join(",") === "1,2,99", "expected wiki-referenced memory to enter the limited recall set");
+  assert(JSON.stringify(bundle.memories.find((memory) => memory.issueNumber === 99)?.wikiAnchors) === JSON.stringify(["projects/clawmem"]), "expected wiki anchor slug to be preserved on the memory");
+}
+
+async function testWikiContextFailureDoesNotBlockMemoryRecall(): Promise<void> {
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async () => [
+      markdownMemory({ issueNumber: 5, detail: "Primary recall should survive wiki failures." }),
+    ],
+    searchWikiPages: async () => { throw new Error("wiki unavailable"); },
+  };
+  const store = new MemoryStore(client as never);
+  const bundle = await store.searchWithContext("primary recall", 3);
+
+  assert(bundle.memories.length === 1 && bundle.memories[0]?.issueNumber === 5, "expected primary memory recall to survive wiki failure");
+  assert(bundle.wikiContexts.length === 0, "expected failed wiki recall to be omitted");
+}
+
 async function testBackendSearchPropagatesErrors(): Promise<void> {
   const client = {
     repo: () => "owner/main-memory",
@@ -366,6 +439,8 @@ await testQueryPlannerVariantLimitCanBeLowered();
 await testLegacyYamlBodiesRemainReadableForRecall();
 await testBackendSearchReturnsEmptyWithoutLexicalFallback();
 await testClosedIssuesAreFilteredFromRecall();
+await testWikiContextBoostsReferencedMemoryIssues();
+await testWikiContextFailureDoesNotBlockMemoryRecall();
 await testBackendSearchPropagatesErrors();
 
 console.log("memory tests passed");

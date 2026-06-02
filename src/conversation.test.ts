@@ -1,6 +1,6 @@
 // Tests for conversation title derivation logic.
-import { ConversationMirror, buildFinalizeArtifactsPrompt, deriveInitialTitle } from "./conversation.js";
-import type { MemorySchema, NormalizedMessage, SessionMirrorState } from "./types.js";
+import { ConversationMirror, batchTranscriptComments, buildFinalizeArtifactsPrompt, deriveInitialTitle } from "./conversation.js";
+import type { NormalizedMessage, SessionMirrorState } from "./types.js";
 
 function msg(role: string, text: string): NormalizedMessage {
   return { role, text };
@@ -75,25 +75,54 @@ async function testLoadSnapshotPrefersFallbackMessages(): Promise<void> {
   assert(snapshot.messages[0]?.text === "Use the in-request transcript.", "expected loadSnapshot to prefer in-request messages over transcript files");
 }
 
-function testBuildFinalizeArtifactsPromptIncludesSchemaReuseRules(): void {
-  const schema: MemorySchema = {
-    kinds: ["core-fact", "convention"],
-    topics: ["redis", "rate-limits"],
-  };
+function testBuildFinalizeArtifactsPromptOnlySummarizesConversation(): void {
   const prompt = buildFinalizeArtifactsPrompt({
     sessionId: "finalize-session",
     messages: [
       msg("user", "请记住我们现在统一用 Redis 做限流。"),
       msg("assistant", "好的，我会按这个约定处理。"),
     ],
-  }, schema);
+  });
 
-  assert(prompt.includes("Candidate titles and details must be in the same language as the majority of the conversation content."), "expected language guidance for candidate text");
-  assert(prompt.includes("Prefer a concise explicit title for each candidate"), "expected explicit title guidance for candidates");
-  assert(prompt.includes("Reuse existing schema labels when one already fits."), "expected schema reuse guidance");
-  assert(prompt.includes("Only create a new label when none of the current labels matches"), "expected controlled schema creation guidance");
-  assert(prompt.includes("- kind:core-fact"), "expected kinds to be embedded in finalize prompt");
-  assert(prompt.includes("- topic:redis"), "expected topics to be embedded in finalize prompt");
+  assert(prompt.includes('Return valid JSON only in the form {"summary":"...","title":"..."}.'), "expected summary/title-only JSON contract");
+  assert(prompt.includes("Do not extract durable memories."), "expected finalization to avoid memory extraction");
+  assert(!prompt.includes('"candidates"'), "expected no candidate JSON schema in the finalize prompt");
+  assert(!prompt.includes("kind:"), "expected no memory label schema in the finalize prompt");
+}
+
+function testBatchTranscriptCommentsDefaultsToSingleMessageComments(): void {
+  const batches = batchTranscriptComments(
+    Array.from({ length: 3 }, (_, index) => msg(index % 2 === 0 ? "user" : "assistant", `message ${index + 1}`)),
+  );
+
+  assert(batches.length === 3, "expected default transcript comments to keep one message per comment");
+  assert(batches.every((batch) => batch.count === 1), "expected each default comment to count one mirrored message");
+  assert(batches.every((batch) => !batch.body.includes("---")), "expected no separator for single-message comments");
+}
+
+function testBatchTranscriptCommentsCombinesOnlyWhenOptedIn(): void {
+  const batches = batchTranscriptComments(
+    Array.from({ length: 25 }, (_, index) => msg(index % 2 === 0 ? "user" : "assistant", `message ${index + 1}`)),
+    undefined,
+    20,
+  );
+
+  assert(batches.length === 2, "expected explicit batching to combine up to 20 messages per comment");
+  assert(batches[0]?.count === 20, "expected first batch to count 20 mirrored messages");
+  assert(batches[1]?.count === 5, "expected second batch to count remaining messages");
+  assert(batches[0]?.body.includes("---"), "expected combined comment to separate messages");
+}
+
+function testBatchTranscriptCommentsSplitsOversizeMessage(): void {
+  const batches = batchTranscriptComments([msg("user", "x".repeat(500))], 220, 20);
+  const totalCount = batches.reduce((sum, batch) => sum + batch.count, 0);
+  const markers = batches.flatMap((batch) => [...batch.body.matchAll(/^marker: (.+)$/gm)].map((match) => match[1]));
+
+  assert(batches.length > 1, "expected oversized message to split into multiple comments");
+  assert(totalCount === 1, "expected split oversized message to count as one mirrored message");
+  assert(batches.every((batch) => batch.body.length <= 220), "expected split comments to respect maxChars");
+  assert(batches[0]?.body.includes("part: 1/"), "expected split comments to include part metadata");
+  assert(new Set(markers).size === markers.length, "expected split comments to use unique retry markers");
 }
 
 async function main(): Promise<void> {
@@ -110,10 +139,16 @@ async function main(): Promise<void> {
   }
   await testLoadSnapshotPrefersFallbackMessages();
   console.log("PASS: loadSnapshot prefers fallback messages");
-  testBuildFinalizeArtifactsPromptIncludesSchemaReuseRules();
-  console.log("PASS: buildFinalizeArtifactsPrompt includes schema reuse rules");
+  testBuildFinalizeArtifactsPromptOnlySummarizesConversation();
+  console.log("PASS: buildFinalizeArtifactsPrompt only summarizes conversation");
+  testBatchTranscriptCommentsDefaultsToSingleMessageComments();
+  console.log("PASS: batchTranscriptComments defaults to single-message comments");
+  testBatchTranscriptCommentsCombinesOnlyWhenOptedIn();
+  console.log("PASS: batchTranscriptComments combines only when opted in");
+  testBatchTranscriptCommentsSplitsOversizeMessage();
+  console.log("PASS: batchTranscriptComments splits oversized messages");
 
-  console.log(`\n${passed + 2} passed, ${failed} failed`);
+  console.log(`\n${passed + 5} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }
 

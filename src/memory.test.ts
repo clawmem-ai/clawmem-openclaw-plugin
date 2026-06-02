@@ -1,45 +1,59 @@
-import { MemoryStore, mergeMemoryCandidates } from "./memory.js";
-import type { ParsedMemoryIssue } from "./types.js";
-import { sha256 } from "./utils.js";
+import { MemoryStore } from "./memory.js";
 import { stringifyFlatYaml } from "./yaml.js";
 
-function memory(overrides: Partial<ParsedMemoryIssue> = {}): ParsedMemoryIssue {
-  return {
-    issueNumber: overrides.issueNumber ?? 1,
-    title: overrides.title ?? "Memory: Example",
-    memoryId: overrides.memoryId ?? String(overrides.issueNumber ?? 1),
-    date: overrides.date ?? "2026-03-23",
-    detail: overrides.detail ?? "Example durable detail",
-    status: overrides.status ?? "active",
-    ...(overrides.kind ? { kind: overrides.kind } : {}),
-    ...(overrides.memoryHash ? { memoryHash: overrides.memoryHash } : {}),
-    ...(overrides.topics ? { topics: overrides.topics } : {}),
-  };
+type IssueRecord = { number: number; title?: string; body?: string; state?: "open" | "closed"; labels?: Array<{ name?: string } | string> };
+
+function assert(condition: unknown, message: string): void {
+  if (!condition) throw new Error(message);
 }
 
-type IssueRecord = { number: number; title?: string; body?: string; state?: "open" | "closed"; labels?: string[] };
-type LabelRecord = { name?: string };
-
-function issueFromMemory(m: ParsedMemoryIssue): IssueRecord {
+function markdownMemory(overrides: {
+  issueNumber?: number;
+  title?: string;
+  detail?: string;
+  kind?: string;
+  topics?: string[];
+  sourceRefs?: string[];
+  state?: "open" | "closed";
+} = {}): IssueRecord {
+  const refs = overrides.sourceRefs ?? [];
   return {
-    number: m.issueNumber,
-    title: m.title,
-    body: stringifyFlatYaml([
-      ["memory_hash", m.memoryHash ?? ""],
-      ["date", m.date],
-      ["detail", m.detail],
-    ]),
-    state: m.status === "stale" ? "closed" : "open",
+    number: overrides.issueNumber ?? 1,
+    title: overrides.title ?? "Memory: Example",
+    body: [
+      "## Memory",
+      "",
+      overrides.detail ?? "Example durable detail.",
+      "",
+      ...(refs.length > 0 ? ["## Relations", "", ...refs.map((ref) => `- source: ${ref}`), ""] : []),
+      "<!-- clawmem",
+      "schema_version: clawmem/v2",
+      "valid_from: 2026-03-23",
+      "valid_to:",
+      "-->",
+    ].join("\n"),
+    state: overrides.state ?? "open",
     labels: [
       "type:memory",
-      ...(m.kind ? [`kind:${m.kind}`] : []),
-      ...(m.topics ?? []).map((topic) => `topic:${topic}`),
+      ...(overrides.kind ? [`kind:${overrides.kind}`] : []),
+      ...((overrides.topics ?? []).map((topic) => `topic:${topic}`)),
     ],
   };
 }
 
-function assert(condition: unknown, message: string): void {
-  if (!condition) throw new Error(message);
+function legacyYamlMemory(): IssueRecord {
+  return {
+    number: 7,
+    title: "Memory: legacy body",
+    body: stringifyFlatYaml([
+      ["memory_id", "legacy-7"],
+      ["memory_hash", "abc123"],
+      ["date", "2026-03-20"],
+      ["detail", "Legacy YAML bodies are still readable for recall."],
+    ]),
+    state: "open",
+    labels: ["type:memory", "kind:lesson", "topic:legacy"],
+  };
 }
 
 async function testBackendSearchBuildsSingleCleanedQuery(): Promise<void> {
@@ -83,51 +97,318 @@ async function testBackendSearchBuildsSingleCleanedQuery(): Promise<void> {
 }
 
 async function testBackendSearchPreferredForRecall(): Promise<void> {
-  const searched = [
-    issueFromMemory(memory({
-      issueNumber: 2,
-      title: "Memory: semantic winner",
-      detail: "Use Lua scripts to keep Redis rate limiting atomic.",
-      kind: "lesson",
-      topics: ["redis"],
-    })),
-  ];
   const queries: string[] = [];
   const client = {
     repo: () => "owner/main-memory",
     searchIssues: async (query: string) => {
       queries.push(query);
-      return searched;
+      return [markdownMemory({
+        issueNumber: 2,
+        title: "Memory: semantic winner",
+        detail: "Use Lua scripts to keep Redis rate limiting atomic.",
+        kind: "lesson",
+        topics: ["redis"],
+        sourceRefs: ["#123"],
+      })];
     },
   };
   const store = new MemoryStore(client as never);
   const found = await store.search("redis rate limiting", 1);
 
   assert(queries.length === 1, "expected backend search to be called once");
-  assert(queries[0]?.includes('repo:owner/main-memory'), "expected backend query to scope to the current repo");
-  assert(queries[0]?.includes('label:\"type:memory\"') || queries[0]?.includes('label:"type:memory"'), "expected backend query to filter memory issues");
+  assert(queries[0]?.includes("repo:owner/main-memory"), "expected backend query to scope to the current repo");
+  assert(queries[0]?.includes('label:"type:memory"'), "expected backend query to filter memory issues");
   assert(found.length === 1 && found[0]?.issueNumber === 2, "expected backend search results to be preferred");
+  assert(found[0]?.detail === "Use Lua scripts to keep Redis rate limiting atomic.", "expected Markdown memory detail to be parsed");
+  assert(found[0]?.kind === "lesson", "expected kind label to be parsed");
+  assert(JSON.stringify(found[0]?.topics) === JSON.stringify(["redis"]), "expected topic labels to be parsed");
+  assert(JSON.stringify(found[0]?.sourceRefs) === JSON.stringify(["#123"]), "expected source refs to be parsed from Relations");
+}
+
+async function testLiteralRepairCanReserveLexicalSlot(): Promise<void> {
+  const queries: string[] = [];
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async (query: string, params?: { debug?: boolean }) => {
+      queries.push(query);
+      if (params?.debug) {
+        return [
+          markdownMemory({
+            issueNumber: 99,
+            title: "Memory: Caroline support group date",
+            detail: "Caroline went to the LGBTQ support group on 2023-05-07.",
+          }) as IssueRecord & { debug: { search_path: string; lexical_rank: number } },
+        ].map((issue) => ({ ...issue, debug: { search_path: "hybrid", lexical_rank: 1 } }));
+      }
+      return [
+        markdownMemory({ issueNumber: 1, title: "Memory: first", detail: "First semantic memory." }),
+        markdownMemory({ issueNumber: 2, title: "Memory: second", detail: "Second semantic memory." }),
+        markdownMemory({ issueNumber: 3, title: "Memory: third", detail: "Third semantic memory." }),
+      ];
+    },
+  };
+  const store = new MemoryStore(client as never, { recallStrategy: "literal-repair" });
+  const found = await store.search("When did Caroline go to the LGBTQ support group?", 3);
+
+  assert(queries.length === 2, "expected full query plus one compact repair query");
+  assert(found.map((memory) => memory.issueNumber).join(",") === "1,2,99", "expected lexical repair memory to occupy the reserved tail slot");
+}
+
+async function testLiteralRepairIgnoresSemanticOnlyRepairHits(): Promise<void> {
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async (_query: string, params?: { debug?: boolean }) => {
+      if (params?.debug) {
+        return [
+          {
+            ...markdownMemory({ issueNumber: 99, detail: "Semantic-only repair hit should not be inserted." }),
+            debug: { search_path: "semantic_only", lexical_rank: 0 },
+          },
+        ];
+      }
+      return [
+        markdownMemory({ issueNumber: 1, detail: "First semantic memory." }),
+        markdownMemory({ issueNumber: 2, detail: "Second semantic memory." }),
+        markdownMemory({ issueNumber: 3, detail: "Third semantic memory." }),
+      ];
+    },
+  };
+  const store = new MemoryStore(client as never, { recallStrategy: "literal-repair" });
+  const found = await store.search("When did Caroline go to the LGBTQ support group?", 3);
+
+  assert(found.map((memory) => memory.issueNumber).join(",") === "1,2,3", "expected semantic-only repair hits to leave full recall unchanged");
+}
+
+async function testQueryPlannerUsesStableCompactVariants(): Promise<void> {
+  const queries: string[] = [];
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async (query: string) => {
+      queries.push(query);
+      if (query.includes("James cooking class")) {
+        return [{
+          ...markdownMemory({
+            issueNumber: 44,
+            title: "Memory: James cooking class",
+            detail: "James signed up for a cooking class because he wanted to learn something new.",
+          }),
+          debug: { search_path: "lexical_only", lexical_rank: 1 },
+        }];
+      }
+      return [] as IssueRecord[];
+    },
+  };
+  const store = new MemoryStore(client as never, { recallStrategy: "query-planner" });
+  const found = await store.search("Why did James sign up for a cooking class?", 3);
+
+  assert(found[0]?.issueNumber === 44, "expected query planner to recall the compact lexical memory");
+  assert(queries.some((query) => query.includes("James cooking class")), "expected compact query to keep James intact");
+  assert(!queries.some((query) => query.includes("Jam cooking class")), "expected query planner not to singularize proper names");
+}
+
+async function testQueryPlannerNormalizesKnownLexicalPitfalls(): Promise<void> {
+  const queries: string[] = [];
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async (query: string) => {
+      queries.push(query);
+      return [] as IssueRecord[];
+    },
+  };
+  const store = new MemoryStore(client as never, { recallStrategy: "query-planner" });
+
+  await store.search("Why did John's teammates sign the basketball they gave him?", 3);
+  await store.search("How did Gina promote her clothes store?", 3);
+  await store.search("Where did Tim take the Smoky Mountains photo?", 3);
+
+  assert(queries.some((query) => query.includes("John teammate basketball")), "expected teammates to normalize to teammate, not a broken stem");
+  assert(!queries.some((query) => /\bteammat\b/.test(query)), "expected teammates not to become teammat");
+  assert(queries.some((query) => query.includes("Gina clothing store")), "expected clothes to normalize to clothing");
+  assert(!queries.some((query) => /\bGina cloth store\b/.test(query)), "expected clothes not to become cloth");
+  assert(queries.some((query) => query.includes("Tim Smoky Mountains photo")), "expected surface query to preserve proper plural Mountains");
+}
+
+async function testQueryPlannerCoreVariantCanBeatBroadEntityFallback(): Promise<void> {
+  const queries: string[] = [];
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async (query: string) => {
+      queries.push(query);
+      if (query.includes("Sam kayaking")) {
+        return [{
+          ...markdownMemory({
+            issueNumber: 85,
+            title: "Memory: Sam kayaking",
+            detail: "Sam and his friend decided to try kayaking on 2023-10-14.",
+          }),
+          debug: { search_path: "lexical_only", lexical_rank: 1 },
+        }];
+      }
+      if (query.includes("Sam repo:")) {
+        return [{
+          ...markdownMemory({
+            issueNumber: 5,
+            title: "Memory: Sam broad profile",
+            detail: "Sam had many unrelated activities.",
+          }),
+          debug: { search_path: "lexical_only", lexical_rank: 1 },
+        }];
+      }
+      return [] as IssueRecord[];
+    },
+  };
+  const store = new MemoryStore(client as never, { recallStrategy: "query-planner", plannerVariantLimit: 6 });
+  const found = await store.search("When did Sam and his friend decide to try kayaking?", 2);
+
+  assert(queries.some((query) => query.includes("Sam kayaking")), "expected core query to drop weak friend term");
+  assert(found.map((memory) => memory.issueNumber).join(",") === "85,5", "expected core lexical hit to rank before broad entity fallback");
+}
+
+async function testQueryPlannerVariantLimitThreeSkipsBroadFallbacks(): Promise<void> {
+  const queries: string[] = [];
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async (query: string) => {
+      queries.push(query);
+      return [] as IssueRecord[];
+    },
+  };
+  const store = new MemoryStore(client as never, { recallStrategy: "query-planner", plannerVariantLimit: 3 });
+  await store.search("When did Sam and his friend decide to try kayaking?", 2);
+
+  assert(queries.length === 3, "expected planner variant limit 3 to run only full, compact, and core variants");
+  assert(!queries.some((query) => query.includes("Sam repo:")), "expected planner variant limit 3 not to run the broad entity-only fallback");
+}
+
+async function testQueryPlannerVariantLimitCanBeLowered(): Promise<void> {
+  const queries: string[] = [];
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async (query: string) => {
+      queries.push(query);
+      return [] as IssueRecord[];
+    },
+  };
+  const store = new MemoryStore(client as never, { recallStrategy: "query-planner", plannerVariantLimit: 2 });
+  await store.search("Why did James sign up for a cooking class?", 3);
+
+  assert(queries.length === 2, "expected explicit planner variant limit to cap search fanout");
+  assert(queries.some((query) => query.includes("James sign up")), "expected full query to run");
+  assert(queries.some((query) => query.includes("James cooking class")), "expected compact query to run");
+}
+
+async function testLegacyYamlBodiesRemainReadableForRecall(): Promise<void> {
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async () => [legacyYamlMemory()],
+  };
+  const store = new MemoryStore(client as never);
+  const found = await store.search("legacy body", 1);
+
+  assert(found[0]?.memoryId === "legacy-7", "expected legacy memory_id to be preserved");
+  assert(found[0]?.memoryHash === "abc123", "expected legacy memory_hash to be preserved");
+  assert(found[0]?.date === "2026-03-20", "expected legacy date metadata to be preserved");
+  assert(found[0]?.detail === "Legacy YAML bodies are still readable for recall.", "expected legacy detail to be readable");
 }
 
 async function testBackendSearchReturnsEmptyWithoutLexicalFallback(): Promise<void> {
-  const issues = [
-    issueFromMemory(memory({
-      issueNumber: 3,
-      title: "Memory: Redis rate limit tuning",
-      detail: "Distributed Redis rate limiting must use Lua scripts to stay atomic.",
-      kind: "lesson",
-      topics: ["redis"],
-    })),
-  ];
   const client = {
     repo: () => "owner/main-memory",
-    listIssues: async () => issues,
+    listIssues: async () => { throw new Error("recall should not scan issues locally"); },
     searchIssues: async () => [] as IssueRecord[],
   };
   const store = new MemoryStore(client as never);
   const found = await store.search("redis rate limiting", 5);
 
   assert(found.length === 0, "expected backend-only recall to return no results when the backend finds nothing");
+}
+
+async function testClosedIssuesAreFilteredFromRecall(): Promise<void> {
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async () => [
+      markdownMemory({ issueNumber: 8, detail: "Closed memories should not be recalled.", state: "closed" }),
+      markdownMemory({ issueNumber: 9, detail: "Open memories should be recalled.", state: "open" }),
+    ],
+  };
+  const store = new MemoryStore(client as never);
+  const found = await store.search("memories", 5);
+
+  assert(found.length === 1, "expected closed memory issues to be filtered out");
+  assert(found[0]?.issueNumber === 9, "expected open memory issue to remain");
+}
+
+async function testWikiContextBoostsReferencedMemoryIssues(): Promise<void> {
+  const viewed: number[] = [];
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async () => [
+      markdownMemory({ issueNumber: 1, title: "Memory: primary one", detail: "Primary memory one." }),
+      markdownMemory({ issueNumber: 2, title: "Memory: primary two", detail: "Primary memory two." }),
+      markdownMemory({ issueNumber: 3, title: "Memory: primary three", detail: "Primary memory three." }),
+    ],
+    searchWikiPages: async () => [{
+      slug: "projects/clawmem",
+      title: "ClawMem",
+      score: 10,
+      snippet: "Architecture context refs: #99",
+    }],
+    getWikiPage: async () => ({
+      slug: "projects/clawmem",
+      title: "ClawMem",
+      body: [
+        "# Project: ClawMem",
+        "",
+        "- Wiki is a context map, not memory ground truth. refs: #99",
+        "- Conversation refs stay provenance. refs: #77",
+        "```",
+        "#66 should not count from code.",
+        "```",
+      ].join("\n"),
+    }),
+    getIssue: async (n: number) => {
+      viewed.push(n);
+      if (n === 99) {
+        return markdownMemory({
+          issueNumber: 99,
+          title: "Memory: wiki architecture",
+          detail: "ClawMem wiki pages are context maps and issue memories are source of truth.",
+          kind: "decision",
+        });
+      }
+      return {
+        number: n,
+        title: "Conversation source",
+        body: "Raw transcript provenance.",
+        state: "open",
+        labels: ["type:conversation"],
+      };
+    },
+  };
+  const store = new MemoryStore(client as never);
+  const bundle = await store.searchWithContext("clawmem architecture wiki", 3);
+
+  assert(bundle.wikiContexts.length === 1, "expected relevant wiki context to be returned");
+  assert(JSON.stringify(bundle.wikiContexts[0]?.issueRefs) === JSON.stringify(["#99", "#77"]), "expected wiki refs to ignore code blocks");
+  assert(viewed.includes(99), "expected referenced memory issue to be inspected");
+  assert(viewed.includes(77), "expected referenced conversation issue to be inspected and filtered out");
+  assert(bundle.memories.map((memory) => memory.issueNumber).join(",") === "1,2,99", "expected wiki-referenced memory to enter the limited recall set");
+  assert(JSON.stringify(bundle.memories.find((memory) => memory.issueNumber === 99)?.wikiAnchors) === JSON.stringify(["projects/clawmem"]), "expected wiki anchor slug to be preserved on the memory");
+}
+
+async function testWikiContextFailureDoesNotBlockMemoryRecall(): Promise<void> {
+  const client = {
+    repo: () => "owner/main-memory",
+    searchIssues: async () => [
+      markdownMemory({ issueNumber: 5, detail: "Primary recall should survive wiki failures." }),
+    ],
+    searchWikiPages: async () => { throw new Error("wiki unavailable"); },
+  };
+  const store = new MemoryStore(client as never);
+  const bundle = await store.searchWithContext("primary recall", 3);
+
+  assert(bundle.memories.length === 1 && bundle.memories[0]?.issueNumber === 5, "expected primary memory recall to survive wiki failure");
+  assert(bundle.wikiContexts.length === 0, "expected failed wiki recall to be omitted");
 }
 
 async function testBackendSearchPropagatesErrors(): Promise<void> {
@@ -146,561 +427,20 @@ async function testBackendSearchPropagatesErrors(): Promise<void> {
   assert(message.includes("search unavailable"), "expected backend failures to propagate instead of falling back locally");
 }
 
-function testMergeMemoryCandidates(): void {
-  const merged = mergeMemoryCandidates(
-    [
-      {
-        candidateId: "abc",
-        detail: "Redis Lua scripts keep rate limiting atomic.",
-        topics: ["redis"],
-      },
-    ],
-    [
-      {
-        candidateId: "abc",
-        detail: "Redis Lua scripts keep rate limiting atomic.",
-        kind: "lesson",
-        topics: ["rate-limit"],
-        evidence: "User confirmed the production path uses Lua.",
-      },
-    ],
-  );
+await testBackendSearchBuildsSingleCleanedQuery();
+await testBackendSearchPreferredForRecall();
+await testLiteralRepairCanReserveLexicalSlot();
+await testLiteralRepairIgnoresSemanticOnlyRepairHits();
+await testQueryPlannerUsesStableCompactVariants();
+await testQueryPlannerNormalizesKnownLexicalPitfalls();
+await testQueryPlannerCoreVariantCanBeatBroadEntityFallback();
+await testQueryPlannerVariantLimitThreeSkipsBroadFallbacks();
+await testQueryPlannerVariantLimitCanBeLowered();
+await testLegacyYamlBodiesRemainReadableForRecall();
+await testBackendSearchReturnsEmptyWithoutLexicalFallback();
+await testClosedIssuesAreFilteredFromRecall();
+await testWikiContextBoostsReferencedMemoryIssues();
+await testWikiContextFailureDoesNotBlockMemoryRecall();
+await testBackendSearchPropagatesErrors();
 
-  assert(merged.length === 1, "expected duplicate candidates to merge by candidateId");
-  assert(merged[0]?.kind === "lesson", "expected merged candidates to preserve new schema hints");
-  assert(JSON.stringify(merged[0]?.topics) === JSON.stringify(["rate-limit", "redis"]), "expected merged candidates to union topics");
-  assert(merged[0]?.evidence === "User confirmed the production path uses Lua.", "expected merged candidates to preserve evidence");
-}
-
-async function testStructuredStoreAndSchema(): Promise<void> {
-  const created: Array<{ title: string; body: string; labels: string[] }> = [];
-  const ensured: string[][] = [];
-  const labels: LabelRecord[] = [{ name: "kind:lesson" }, { name: "topic:redis" }];
-  const client = {
-    repo: () => "owner/main-memory",
-    searchIssues: async () => [] as IssueRecord[],
-    listIssues: async () => [] as IssueRecord[],
-    listLabels: async () => labels,
-    ensureLabels: async (next: string[]) => { ensured.push(next); },
-    createIssue: async (payload: { title: string; body: string; labels: string[] }) => {
-      created.push(payload);
-      return { number: 99, title: payload.title };
-    },
-  };
-  const store = new MemoryStore(client as never);
-  const result = await store.store({ detail: "Redis Lua scripts are required for atomic rate limiting.", kind: "Lesson", topics: ["Redis Ops", "rate_limit"] });
-  const schema = await store.listSchema();
-
-  assert(result.created === true, "expected a new structured memory to be created");
-  assert(result.memory.kind === "lesson", "expected kind to be normalized");
-  assert(JSON.stringify(result.memory.topics) === JSON.stringify(["rate-limit", "redis-ops"]), "expected topics to be normalized and sorted");
-  assert(created.length === 1, "expected a single issue creation");
-  assert(created[0]?.labels.includes("kind:lesson"), "expected created labels to include normalized kind");
-  assert(created[0]?.labels.includes("topic:redis-ops"), "expected created labels to include normalized topic");
-  assert(created[0]?.labels.includes("topic:rate-limit"), "expected created labels to include normalized topic");
-  assert(!created[0]?.labels.some((label) => label.startsWith("session:")), "expected manual memory_store writes to omit synthetic session labels");
-  assert(!created[0]?.labels.some((label) => label.startsWith("date:")), "expected new memory labels to omit date labels");
-  assert(created[0]?.body.includes("memory_hash:"), "expected new memory body to retain metadata fields");
-  assert(created[0]?.body.includes("detail: Redis Lua scripts are required for atomic rate limiting."), "expected new memory body to store detail in YAML");
-  assert(created[0]?.body.includes(`date: ${result.memory.date}`), "expected new memory body to retain logical date metadata");
-  assert(ensured[0]?.includes("kind:lesson"), "expected ensureLabels to include kind label");
-  assert(schema.kinds.includes("lesson"), "expected schema to expose existing kind labels");
-  assert(schema.topics.includes("redis"), "expected schema to expose existing topic labels");
-}
-
-async function testListSchemaPrefersLabelsWithoutIssueScan(): Promise<void> {
-  const client = {
-    listLabels: async () => [{ name: "kind:lesson" }, { name: "topic:redis" }, { name: "topic:rate-limit" }],
-    listIssues: async () => { throw new Error("listSchema should not scan issues when label schema is available"); },
-  };
-  const store = new MemoryStore(client as never);
-  const schema = await store.listSchema();
-
-  assert(JSON.stringify(schema.kinds) === JSON.stringify(["lesson"]), "expected schema kinds to come from labels");
-  assert(JSON.stringify(schema.topics) === JSON.stringify(["rate-limit", "redis"]), "expected schema topics to come from labels");
-}
-
-async function testStoreDeduplicatesViaHashSearch(): Promise<void> {
-  const detail = "Redis Lua scripts are required for atomic rate limiting.";
-  const hash = sha256(detail);
-  const existing = memory({
-    issueNumber: 77,
-    detail,
-    memoryHash: hash,
-    kind: "lesson",
-    topics: ["redis-ops"],
-  });
-  const queries: string[] = [];
-  const client = {
-    repo: () => "owner/main-memory",
-    searchIssues: async (query: string) => {
-      queries.push(query);
-      return [issueFromMemory(existing)];
-    },
-    listIssues: async () => { throw new Error("store should not scan all active memories"); },
-    ensureLabels: async () => {},
-    createIssue: async () => { throw new Error("store should not create a duplicate issue"); },
-  };
-  const store = new MemoryStore(client as never);
-  const result = await store.store({ detail, kind: "lesson", topics: ["redis_ops"] });
-
-  assert(result.created === false, "expected hash search to reuse an existing exact duplicate");
-  assert(result.memory.issueNumber === 77, "expected hash search to return the existing memory");
-  assert(queries.length === 1 && queries[0]?.includes(hash), "expected store to query by memory hash");
-}
-
-async function testStoreKeepsFullAutoTitleAndSupportsExplicitTitle(): Promise<void> {
-  const created: Array<{ title: string; body: string; labels: string[] }> = [];
-  const client = {
-    listIssues: async () => [] as IssueRecord[],
-    listLabels: async () => [] as LabelRecord[],
-    ensureLabels: async () => {},
-    createIssue: async (payload: { title: string; body: string; labels: string[] }) => {
-      created.push(payload);
-      return { number: created.length + 100, title: payload.title };
-    },
-  };
-  const store = new MemoryStore(client as never);
-  const longDetail = "Tech Decision #001: Frontend = React Native, Backend = FastAPI, Database = PostgreSQL, and analytics events must stay append-only for auditability.";
-  const auto = await store.store({ detail: longDetail });
-  const explicit = await store.store({ title: "Architecture Decision #001", detail: "Use React Native + FastAPI for the first mobile stack." });
-
-  assert(auto.memory.title === `Memory: ${longDetail}`, "expected auto-generated memory title to keep the full detail without truncation");
-  assert(explicit.memory.title === "Memory: Architecture Decision #001", "expected explicit memory title to be preserved");
-  assert(created[0]?.title === `Memory: ${longDetail}`, "expected created issue title to keep the full auto title");
-  assert(created[1]?.title === "Memory: Architecture Decision #001", "expected created issue title to use the explicit title");
-}
-
-async function testGetAndListMemories(): Promise<void> {
-  const issues = [
-    issueFromMemory(memory({
-      issueNumber: 4,
-      title: "Memory: xiangz preferences",
-      detail: "xiangz likes F1 and watches Dota 2 as a viewer.",
-      kind: "core-fact",
-      topics: ["preferences", "hobbies"],
-    })),
-    issueFromMemory(memory({
-      issueNumber: 10,
-      title: "Memory: fruit preference",
-      detail: "xiangz likes mango.",
-      kind: "core-fact",
-      topics: ["food"],
-    })),
-    issueFromMemory(memory({
-      issueNumber: 11,
-      title: "Memory: old sports note",
-      detail: "xiangz follows F1.",
-      kind: "lesson",
-      status: "stale",
-      topics: ["sports"],
-    })),
-  ];
-  const client = {
-    getIssue: async (number: number) => {
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      return issue;
-    },
-    listIssues: async (params?: { labels?: string[]; state?: "open" | "closed" | "all" }) => {
-      const labels = params?.labels ?? [];
-      const state = params?.state ?? "open";
-      return issues.filter((issue) => {
-        const issueLabels = issue.labels ?? [];
-        if (!labels.every((label) => issueLabels.includes(label))) return false;
-        if (state === "all") return true;
-        return (issue.state ?? "open") === state;
-      });
-    },
-  };
-  const store = new MemoryStore(client as never);
-  const exact = await store.get("4");
-  const activeFacts = await store.listMemories({ status: "active", kind: "core-fact", limit: 10 });
-  const sports = await store.listMemories({ status: "all", topic: "sports", limit: 10 });
-
-  assert(exact?.issueNumber === 4, "expected direct memory lookup to find issue #4");
-  assert(activeFacts.length === 2, "expected listMemories to filter active core facts");
-  assert(activeFacts[0]?.issueNumber === 10, "expected listMemories to sort newest-first");
-  assert(sports.length === 1 && sports[0]?.issueNumber === 11, "expected listMemories to filter by topic across statuses");
-}
-
-async function testLegacyMemoriesWithoutSessionOrDate(): Promise<void> {
-  const issues: IssueRecord[] = [
-    {
-      number: 4,
-      title: "Memory: xiangz preferences",
-      body: "xiangz likes F1 and watches Dota 2 as a viewer.",
-      labels: ["type:memory", "kind:core-fact", "topic:preferences"],
-    },
-  ];
-  const client = {
-    repo: () => "owner/main-memory",
-    getIssue: async (number: number) => {
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      return issue;
-    },
-    listIssues: async (params?: { labels?: string[]; state?: "open" | "closed" | "all" }) => {
-      const labels = params?.labels ?? [];
-      const state = params?.state ?? "open";
-      return issues.filter((issue) => {
-        const issueLabels = issue.labels ?? [];
-        if (!labels.every((label) => issueLabels.includes(label))) return false;
-        if (state === "all") return true;
-        return (issue.state ?? "open") === state;
-      });
-    },
-    searchIssues: async () => issues,
-  };
-  const store = new MemoryStore(client as never);
-  const exact = await store.get("4");
-  const recalled = await store.search("F1 Dota 2", 5);
-
-  assert(exact?.issueNumber === 4, "expected legacy memory without session/date to be readable");
-  assert(exact?.date === "1970-01-01", "expected missing date label to fall back to a placeholder");
-  assert(recalled.some((memory) => memory.issueNumber === 4), "expected legacy memory to participate in recall");
-}
-
-async function testUpdateMemoryInPlace(): Promise<void> {
-  const issues: IssueRecord[] = [
-    issueFromMemory(memory({
-      issueNumber: 4,
-      title: "Memory: xiangz preferences",
-      detail: "xiangz likes F1 and watches Dota 2 as a viewer.",
-      kind: "core-fact",
-      topics: ["preferences"],
-    })),
-  ];
-  const ensured: string[][] = [];
-  const updatedIssues: Array<{ number: number; title?: string; body?: string }> = [];
-  const syncedLabels: Array<{ number: number; labels: string[] }> = [];
-  const client = {
-    getIssue: async (number: number) => {
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      return issue;
-    },
-    listIssues: async (params?: { labels?: string[]; state?: "open" | "closed" | "all" }) => {
-      const labels = params?.labels ?? [];
-      const state = params?.state ?? "open";
-      return issues.filter((issue) => {
-        const issueLabels = issue.labels ?? [];
-        if (!labels.every((label) => issueLabels.includes(label))) return false;
-        if (state === "all") return true;
-        return (issue.state ?? "open") === state;
-      });
-    },
-    ensureLabels: async (labels: string[]) => { ensured.push(labels); },
-    updateIssue: async (number: number, patch: { title?: string; body?: string }) => {
-      updatedIssues.push({ number, ...patch });
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      if (patch.title) issue.title = patch.title;
-      if (patch.body) issue.body = patch.body;
-      return issue;
-    },
-    syncManagedLabels: async (number: number, labels: string[]) => {
-      syncedLabels.push({ number, labels });
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      issue.labels = labels;
-    },
-  };
-  const store = new MemoryStore(client as never);
-  const updated = await store.update("4", {
-    detail: "xiangz likes F1, watches Dota 2 as a viewer, and recently follows tennis.",
-    topics: ["preferences", "sports"],
-  });
-
-  assert(updated?.issueNumber === 4, "expected memory_update to modify the same issue");
-  assert(updated?.detail.includes("tennis"), "expected updated detail to be returned");
-  assert(JSON.stringify(updated?.topics) === JSON.stringify(["preferences", "sports"]), "expected topics to be replaced");
-  assert(updatedIssues.length === 1, "expected a single issue update");
-  assert(updatedIssues[0]?.title !== "Memory: xiangz preferences", "expected title to refresh from updated detail");
-  assert(updatedIssues[0]?.body?.includes("memory_hash:"), "expected updated body to retain metadata");
-  assert(updatedIssues[0]?.body?.includes("detail:"), "expected updated body to store a detail field in YAML");
-  assert(updatedIssues[0]?.body?.includes("recently follows tennis"), "expected updated body to contain the updated detail text");
-  assert(ensured[0]?.includes("topic:sports"), "expected new topic label to be ensured");
-  assert(syncedLabels[0]?.labels.includes("kind:core-fact"), "expected existing kind label to be preserved");
-}
-
-async function testUpdateSupportsExplicitRetitle(): Promise<void> {
-  const issues: IssueRecord[] = [
-    issueFromMemory(memory({
-      issueNumber: 20,
-      title: "Memory: old short title",
-      detail: "We use append-only audit events for billing changes.",
-      kind: "convention",
-    })),
-  ];
-  const updatedIssues: Array<{ number: number; title?: string; body?: string }> = [];
-  const client = {
-    getIssue: async (number: number) => {
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      return issue;
-    },
-    listIssues: async (params?: { labels?: string[]; state?: "open" | "closed" | "all" }) => {
-      const labels = params?.labels ?? [];
-      const state = params?.state ?? "open";
-      return issues.filter((issue) => {
-        const issueLabels = issue.labels ?? [];
-        if (!labels.every((label) => issueLabels.includes(label))) return false;
-        if (state === "all") return true;
-        return (issue.state ?? "open") === state;
-      });
-    },
-    ensureLabels: async () => {},
-    updateIssue: async (number: number, patch: { title?: string; body?: string }) => {
-      updatedIssues.push({ number, ...patch });
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      if (patch.title) issue.title = patch.title;
-      if (patch.body) issue.body = patch.body;
-      return issue;
-    },
-    syncManagedLabels: async () => {},
-  };
-  const store = new MemoryStore(client as never);
-  const updated = await store.update("20", { title: "Billing Audit Convention" });
-
-  assert(updated?.title === "Memory: Billing Audit Convention", "expected memory_update to support explicit retitle");
-  assert(updatedIssues[0]?.title === "Memory: Billing Audit Convention", "expected issue title patch to use the explicit retitle");
-}
-
-async function testUpdateUsesHashSearchForDuplicateCheck(): Promise<void> {
-  const currentDetail = "We use append-only audit events for billing changes.";
-  const conflictingDetail = "Billing events must stay append-only for auditability.";
-  const current = issueFromMemory(memory({
-    issueNumber: 20,
-    title: "Memory: billing convention",
-    detail: currentDetail,
-    memoryHash: sha256(currentDetail),
-    kind: "convention",
-  }));
-  const conflicting = issueFromMemory(memory({
-    issueNumber: 21,
-    title: "Memory: audit rule",
-    detail: conflictingDetail,
-    memoryHash: sha256(conflictingDetail),
-    kind: "convention",
-  }));
-  const queries: string[] = [];
-  const client = {
-    repo: () => "owner/main-memory",
-    getIssue: async (number: number) => {
-      if (number === 20) return current;
-      throw new Error("issue missing");
-    },
-    searchIssues: async (query: string) => {
-      queries.push(query);
-      return [conflicting];
-    },
-    listIssues: async () => { throw new Error("update should not scan all active memories when direct lookup/search are available"); },
-    ensureLabels: async () => {},
-    updateIssue: async () => { throw new Error("duplicate update should fail before mutating"); },
-    syncManagedLabels: async () => {},
-  };
-  const store = new MemoryStore(client as never);
-  let message = "";
-  try {
-    await store.update("20", { detail: conflictingDetail });
-  } catch (error) {
-    message = String(error);
-  }
-
-  assert(message.includes("[21]"), "expected duplicate detection to reference the conflicting memory");
-  assert(queries.length === 1 && queries[0]?.includes(sha256(conflictingDetail)), "expected update duplicate checks to search by memory hash");
-}
-
-async function testForgetClosesMemoryIssue(): Promise<void> {
-  const issues: IssueRecord[] = [
-    issueFromMemory(memory({
-      issueNumber: 12,
-      title: "Memory: outdated deployment rule",
-      detail: "Always restart the full cluster after deploy.",
-      kind: "convention",
-      topics: ["deploy"],
-    })),
-  ];
-  const syncedLabels: Array<{ number: number; labels: string[] }> = [];
-  const updatedIssues: Array<{ number: number; state?: "open" | "closed" }> = [];
-  const client = {
-    getIssue: async (number: number) => {
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      return issue;
-    },
-    listIssues: async (params?: { labels?: string[]; state?: "open" | "closed" | "all" }) => {
-      const labels = params?.labels ?? [];
-      const state = params?.state ?? "open";
-      return issues.filter((issue) => {
-        const issueLabels = issue.labels ?? [];
-        if (!labels.every((label) => issueLabels.includes(label))) return false;
-        if (state === "all") return true;
-        return (issue.state ?? "open") === state;
-      });
-    },
-    syncManagedLabels: async (number: number, labels: string[]) => {
-      syncedLabels.push({ number, labels });
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      issue.labels = labels;
-    },
-    updateIssue: async (number: number, patch: { state?: "open" | "closed" }) => {
-      updatedIssues.push({ number, state: patch.state });
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      if (patch.state) issue.state = patch.state;
-      return issue;
-    },
-  };
-  const store = new MemoryStore(client as never);
-  const forgotten = await store.forget("12");
-
-  assert(forgotten?.status === "stale", "expected forgotten memory to be returned as stale");
-  assert(updatedIssues[0]?.state === "closed", "expected memory_forget to close the issue");
-  assert(syncedLabels[0]?.labels.every((label) => !label.startsWith("memory-status:")), "expected memory_forget to stop writing lifecycle labels");
-}
-
-async function testStorePreservesMultilineSkillBody(): Promise<void> {
-  const skillDetail = [
-    "trigger: when the user asks for a project review",
-    "steps:",
-    "  - read README and entry files",
-    "  - inspect core modules",
-    "checks:",
-    "  - conclusion first, no README recap",
-    "last_validated: 2026-04-20",
-    "evidence:",
-    '  - "#10"',
-  ].join("\n");
-  const created: Array<{ title: string; body: string; labels: string[] }> = [];
-  const client = {
-    repo: () => "owner/main-memory",
-    searchIssues: async () => [] as IssueRecord[],
-    listIssues: async () => [] as IssueRecord[],
-    listLabels: async () => [] as LabelRecord[],
-    ensureLabels: async () => {},
-    createIssue: async (payload: { title: string; body: string; labels: string[] }) => {
-      created.push(payload);
-      return { number: 91, title: payload.title };
-    },
-  };
-  const store = new MemoryStore(client as never);
-  const result = await store.store({ detail: skillDetail, kind: "skill", topics: ["review"] });
-
-  const body = created[0]?.body ?? "";
-  assert(result.created === true, "expected a new skill memory to be created");
-  assert(body.includes("detail: |-"), "expected multi-line detail to use a YAML block scalar, not a quoted scalar");
-  assert(body.includes("  trigger: when the user asks for a project review"), "expected block scalar to preserve the first content line");
-  assert(body.includes("    - read README and entry files"), "expected block scalar to preserve nested list indentation");
-  assert(!body.includes('\\"#10\\"'), "expected block scalar to avoid JSON-escaping quotes inside evidence");
-  assert(result.memory.detail === skillDetail, "expected stored detail to preserve the original structure line-for-line");
-}
-
-async function testStoreMultilineAndSinglelineDedupSharesHash(): Promise<void> {
-  const multilineDetail = [
-    "trigger: sample",
-    "steps:",
-    "  - one",
-  ].join("\n");
-  const singlelineDetail = "trigger: sample steps: - one";
-  const expectedHash = sha256(singlelineDetail);
-  const existing = memory({
-    issueNumber: 55,
-    detail: singlelineDetail,
-    memoryHash: expectedHash,
-    kind: "skill",
-  });
-  const queries: string[] = [];
-  const client = {
-    repo: () => "owner/main-memory",
-    searchIssues: async (query: string) => {
-      queries.push(query);
-      return [issueFromMemory(existing)];
-    },
-    listIssues: async () => { throw new Error("store should not scan all active memories"); },
-    ensureLabels: async () => {},
-    createIssue: async () => { throw new Error("store should not create a duplicate issue"); },
-    syncManagedLabels: async () => {},
-  };
-  const store = new MemoryStore(client as never);
-  const result = await store.store({ detail: multilineDetail, kind: "skill" });
-
-  assert(result.created === false, "expected multi-line and single-line details that differ only in whitespace to collide by hash");
-  assert(result.memory.issueNumber === 55, "expected the existing memory to win the dedup");
-  assert(queries[0]?.includes(expectedHash), "expected dedup to query on the whitespace-flattened hash");
-}
-
-async function testUpdatePreservesMultilineDetail(): Promise<void> {
-  const initialDetail = "trigger: first version";
-  const updatedDetail = [
-    "trigger: updated version",
-    "steps:",
-    "  - refined",
-  ].join("\n");
-  const issues: IssueRecord[] = [
-    issueFromMemory(memory({
-      issueNumber: 77,
-      title: "Memory: skill under test",
-      detail: initialDetail,
-      memoryHash: sha256(initialDetail),
-      kind: "skill",
-    })),
-  ];
-  const updatedIssues: Array<{ number: number; title?: string; body?: string }> = [];
-  const client = {
-    repo: () => "owner/main-memory",
-    getIssue: async (number: number) => {
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      return issue;
-    },
-    searchIssues: async () => [] as IssueRecord[],
-    listIssues: async () => [] as IssueRecord[],
-    ensureLabels: async () => {},
-    updateIssue: async (number: number, patch: { title?: string; body?: string }) => {
-      updatedIssues.push({ number, ...patch });
-      const issue = issues.find((entry) => entry.number === number);
-      if (!issue) throw new Error("issue missing");
-      if (patch.title) issue.title = patch.title;
-      if (patch.body) issue.body = patch.body;
-      return issue;
-    },
-    syncManagedLabels: async () => {},
-  };
-  const store = new MemoryStore(client as never);
-  const updated = await store.update("77", { detail: updatedDetail });
-
-  assert(updated?.detail === updatedDetail, "expected memory_update to return the multi-line detail unchanged");
-  assert(updatedIssues[0]?.body?.includes("detail: |-"), "expected memory_update to rewrite the body with a YAML block scalar when the new detail has newlines");
-  assert(updatedIssues[0]?.body?.includes("    - refined"), "expected the updated body to preserve nested list indentation");
-}
-
-async function main(): Promise<void> {
-  await testBackendSearchBuildsSingleCleanedQuery();
-  await testBackendSearchPreferredForRecall();
-  await testBackendSearchReturnsEmptyWithoutLexicalFallback();
-  await testBackendSearchPropagatesErrors();
-  testMergeMemoryCandidates();
-  await testStructuredStoreAndSchema();
-  await testListSchemaPrefersLabelsWithoutIssueScan();
-  await testStoreDeduplicatesViaHashSearch();
-  await testStoreKeepsFullAutoTitleAndSupportsExplicitTitle();
-  await testGetAndListMemories();
-  await testLegacyMemoriesWithoutSessionOrDate();
-  await testUpdateMemoryInPlace();
-  await testUpdateSupportsExplicitRetitle();
-  await testForgetClosesMemoryIssue();
-  await testUpdateUsesHashSearchForDuplicateCheck();
-  await testStorePreservesMultilineSkillBody();
-  await testStoreMultilineAndSinglelineDedupSharesHash();
-  await testUpdatePreservesMultilineDetail();
-  console.log("memory tests passed");
-}
-
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+console.log("memory tests passed");

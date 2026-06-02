@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { MemoryCandidate, PluginState, SessionDerivedState, SessionMirrorState, SessionTaskStatus } from "./types.js";
+import type { PluginState, SessionDerivedState, SessionMirrorState, SessionTaskStatus } from "./types.js";
 import { normalizeAgentId, sessionScopeKey } from "./utils.js";
 
 const EMPTY_STATE: PluginState = {
@@ -67,11 +67,14 @@ function sanitizeState(value: unknown): PluginState {
       sessionKey: readString(rawSession.sessionKey),
       sessionFile: readString(rawSession.sessionFile),
       agentId,
+      repo: readRepo(rawSession.repo),
       issueNumber: readNumber(rawSession.issueNumber),
       issueTitle: readString(rawSession.issueTitle),
       titleSource: readTitleSource(rawSession.titleSource),
       lastMirroredCount,
       turnCount: readNumber(rawSession.turnCount) ?? 0,
+      lastMirrorError: readString(rawSession.lastMirrorError),
+      lastMirrorAttemptAt: readString(rawSession.lastMirrorAttemptAt),
       finalizedAt,
       lastSummaryHash: readString(rawSession.lastSummaryHash),
       derived,
@@ -89,9 +92,7 @@ function sanitizeDerivedState(
 ): SessionDerivedState {
   const rawDerived = asRecord(rawSession.derived);
   const rawSummary = asRecord(rawDerived?.summary);
-  const rawMemory = asRecord(rawDerived?.memory);
   const legacySummaryStatus = readEnum(rawSession.summaryStatus, ["pending", "complete"]);
-  const legacyMemoryCursor = readNumber(rawSession.lastMemorySyncCount);
 
   const summaryText = readString(rawSummary?.text);
   const summaryTitle = readString(rawSummary?.title);
@@ -105,19 +106,6 @@ function sanitizeDerivedState(
     lastMirroredCount,
   );
 
-  const capturedCursor = clampCursor(
-    readNumber(rawMemory?.capturedCursor)
-      ?? readNumber(rawMemory?.appliedCursor)
-      ?? legacyMemoryCursor,
-    summaryStatus === "complete" ? lastMirroredCount : 0,
-    lastMirroredCount,
-  );
-  const memoryStatus = readTaskStatus(
-    rawMemory?.status ?? rawMemory?.extractStatus ?? rawMemory?.reconcileStatus,
-    capturedCursor >= lastMirroredCount && lastMirroredCount > 0 ? "complete" : "idle",
-  );
-  const candidates = readMemoryCandidates(rawMemory?.candidates);
-
   return {
     summary: {
       basedOnCursor: summaryCursor,
@@ -126,13 +114,6 @@ function sanitizeDerivedState(
       ...(summaryTitle ? { title: summaryTitle } : {}),
       ...(readString(rawSummary?.lastError) ? { lastError: readString(rawSummary?.lastError) } : {}),
       ...(readString(rawSummary?.updatedAt) ? { updatedAt: readString(rawSummary?.updatedAt) } : {}),
-    },
-    memory: {
-      capturedCursor,
-      status: memoryStatus,
-      ...(candidates ? { candidates } : {}),
-      ...(readString(rawMemory?.lastError) ? { lastError: readString(rawMemory?.lastError) } : {}),
-      ...(readString(rawMemory?.updatedAt) ? { updatedAt: readString(rawMemory?.updatedAt) } : {}),
     },
   };
 }
@@ -153,6 +134,11 @@ function readNumber(value: unknown): number | undefined {
   return Math.max(0, Math.floor(value));
 }
 
+function readRepo(value: unknown): string | undefined {
+  const repo = readString(value);
+  return repo && /^[^/\s]+\/[^/\s]+$/.test(repo) ? repo : undefined;
+}
+
 function readTaskStatus(value: unknown, fallback: SessionTaskStatus): SessionTaskStatus {
   const status = readEnum(value, ["idle", "pending", "running", "complete", "error"]);
   if (!status) return fallback;
@@ -164,36 +150,6 @@ function readTitleSource(value: unknown): "placeholder" | "llm" | undefined {
   const source = readEnum(value, ["placeholder", "digest", "llm"]);
   if (!source) return undefined;
   return source === "digest" ? "llm" : source;
-}
-
-function readMemoryCandidates(value: unknown): MemoryCandidate[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const out = value
-    .map((entry) => sanitizeMemoryCandidate(entry))
-    .filter((candidate): candidate is MemoryCandidate => candidate !== null);
-  return out;
-}
-
-function sanitizeMemoryCandidate(value: unknown): MemoryCandidate | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  const candidateId = readString(record.candidateId);
-  const detail = readString(record.detail);
-  if (!candidateId || !detail) return null;
-  const title = readString(record.title);
-  const kind = readString(record.kind);
-  const topics = Array.isArray(record.topics)
-    ? record.topics.map((topic) => readString(topic)).filter((topic): topic is string => Boolean(topic))
-    : undefined;
-  const evidence = readString(record.evidence);
-  return {
-    candidateId,
-    detail,
-    ...(title ? { title } : {}),
-    ...(kind ? { kind } : {}),
-    ...(topics && topics.length > 0 ? { topics } : {}),
-    ...(evidence ? { evidence } : {}),
-  };
 }
 
 function clampCursor(value: number | undefined, fallback: number, max: number): number {

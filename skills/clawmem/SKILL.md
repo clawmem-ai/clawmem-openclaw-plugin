@@ -1,115 +1,248 @@
 ---
 name: clawmem
-description: Durable memory workflows for the ClawMem OpenClaw plugin. Use when ClawMem is installed and you need to recall prior preferences, project history, facts, decisions, lessons, workflows, active tasks, or shared memory; save or update durable knowledge with the ClawMem memory tools; choose the right memory repo; manage shared memory spaces, organizations, teams, collaborators, invitations, outside collaborators, or repo-access governance in the ClawMem backend; or troubleshoot ClawMem setup and manual repo-backed operations.
+description: "GitHub-native durable memory workflows for the ClawMem OpenClaw plugin. Use when ClawMem is installed and you need to recall, create, update, close, link, or maintain repo-backed memory issues; reason about transcript mirrors or wiki context maps; choose the right memory repo; or operate ClawMem through GitHub-compatible gh / gh api commands."
 ---
 
 # ClawMem
 
-ClawMem is the active long-term memory system for this OpenClaw installation. It runs on a GitHub-compatible repo and issue backend, so plugin tools are the default path and raw `gh` or `curl` are only fallbacks for explicit repo operations, backend debugging, or tool outages.
+ClawMem is the active long-term memory system for this OpenClaw installation.
+Use it the way a careful human uses GitHub:
 
-## Operating model
+- issues are records
+- comments are history
+- labels are schema
+- visible issue references are relations
+- issue state is lifecycle
 
-Without ClawMem, each session starts from zero. With it, what the agent learns persists across time and shapes future requests.
+The core rule:
 
-Use each persistence layer for one clear purpose:
-- ClawMem issues: durable memories for the agent to remember later
-- Files: outputs for tools or humans to read directly
-- Config files: connection and environment state
+> Issue memory carries atomic durable memory. Wiki pages carry context maps.
 
-If you are writing something so the agent remembers it later, it belongs in ClawMem. If you are writing something for a tool or human to read, write a file instead.
+Wiki context can restore background and boost recall, but it is not memory
+ground truth. When wiki prose conflicts with an open memory issue, trust the
+issue and repair the wiki.
 
-Memory hygiene matters: lock important insights deliberately, update canonical facts instead of spawning duplicates, and retire stale memories when reality changes.
+The plugin intentionally exposes a small tool surface:
 
-## What the plugin already does
+- `clawmem_status`
+- `clawmem_sync`
+- `clawmem_maintain`
 
-The ClawMem plugin automatically handles:
-- Per-agent provisioning of credentials plus a default memory repo
-- Session mirroring into `type:conversation` issues
-- Best-effort automatic memory recall before each turn, scoped to the current agent's `defaultRepo`
-- A best-effort final issue summary/title plus durable memory capture when the session resets or ends normally
-- Mid-session memory tools: `memory_repos`, `memory_repo_create`, `memory_list`, `memory_get`, `memory_labels`, `memory_recall`, `memory_store`, `memory_update`, and `memory_forget`
-- Shared-workflow tools for collaboration routing, default repo retargeting, generic issues, and issue comments
+Do not look for `memory_store`, `memory_update`, `memory_forget`, or broad
+collaboration wrapper tools. Durable memory work is skill-driven through
+GitHub-compatible `gh` / `gh api` operations.
 
-## Mandatory turn loop
+## Turn Loop
 
-On every user turn, run this loop:
+On each user turn:
 
-1. Before answering, ask: could ClawMem improve this answer?
-   - Default to yes for user preferences, project history, prior decisions, lessons, conventions, terminology, recurring problems, and active tasks.
-   - Auto-recall may already inject useful context from the current agent's `defaultRepo`, but it is only a hint. Do not treat missing auto-recall context as proof that no relevant memory exists.
-   - Each `<clawmem-context>` bullet is `- [id] (kind:<kind>) <title> — <detail>` when those fields are available. Use the `kind` to triage: prefer `kind:skill` / `kind:convention` as operational guidance, and treat `kind:lesson` as one-off corrections unless several converge on the same direction (then promote — see [references/review.md](references/review.md)).
-   - Auto-recall does not currently fan out across every accessible repo. Shared organization memory and project memory outside the current `defaultRepo` will not be recalled automatically.
-   - Before explicit memory work, choose the right repo. If unclear, inspect `memory_repos` and fall back to the agent's `defaultRepo`. If the likely memory lives outside the default repo, use explicit repo selection instead of relying on auto-recall.
-   - Use `memory_recall` when injected context is missing, weak, cross-repo, high-stakes, or when you need an explicit retrieval trace.
-   - Write `memory_recall.query` as a short natural-language intent. Do not paste long code blocks, full logs, tool chatter, or system prompt text unless the exact wording is necessary.
-   - When the question spans more than one angle, run more than one recall query across keywords, topics, synonyms, and likely project phrasing.
-   - If `memory_recall` is weak or empty and the answer depends on whether a memory exists, cross-check with `memory_list`.
-   - If the first recall pass is weak, broaden with shorter terms, adjacent topics, or alternate phrasing before concluding a miss.
-   - If a specific memory id or issue number is mentioned, use `memory_get`.
-   - Never treat a `memory_recall` miss by itself as proof that no relevant memory exists.
-2. After answering, ask: did this turn create durable knowledge?
-   - Default to yes for corrections, preferences, decisions, workflows, lessons, and status changes.
-   - Automatic capture happens at session finalization and is best-effort. If a fact must be durable immediately, or the next turn will depend on it, write it explicitly with `memory_store` or `memory_update` instead of waiting for session end.
-   - Prefer one durable fact per memory. If a turn contains several independent facts, save them separately instead of bundling them into one summary memory.
-   - Use `memory_update` when the same canonical fact or ongoing task should keep evolving as one node.
-   - When updating an existing memory, preserve that node's current language unless the user explicitly asks for a rewrite.
-   - Use `memory_store` when this is a genuinely new memory.
-   - When using `memory_store`, pass both `title` and `detail` when you can. Keep the title concise and human-readable, and keep `detail` as the full durable fact.
-   - When using `memory_update`, pass `title` as well if the existing title is too short, outdated, or less precise than the current canonical fact.
-   - Keep one durable fact per memory. Do not bundle unrelated facts, temporary requests, tool chatter, or startup boilerplate into one saved node.
-   - For new memories, write the memory title and body in the user's current language by default.
-   - Use `memory_forget` when a memory is stale, superseded, or harmful if reused.
-   - Trigger-phrase reflex: when the user's message contains one of the signals below, writing memory is not optional — pick the indicated kind and save, or `memory_update` the canonical node if one already exists.
+1. Ask whether prior memory could materially improve the answer.
+2. Use auto-injected ClawMem context when it is enough.
+3. If explicit recall or writing is needed, resolve the route, list accessible
+   repos, choose the right repo, and list labels for that repo.
+4. Recall direct `type:memory` issues first. Search wiki pages only in parallel
+   as orientation and ranking hints.
+5. Answer from open memory issues when available. Use wiki context as background,
+   not as the sole source of truth.
+6. After answering, ask whether the turn produced durable local alpha.
+7. If yes, create, update, close, or deliberately skip memory issues through
+   GitHub operations.
+8. If an important memory should be fast to recover on future starts, update the
+   relevant wiki context page after the issue memory exists.
 
-     | Signal from the user | Kind to save |
-     |---|---|
-     | "no", "don't", "stop doing that", "下次不要这样", "别这样", an explicit correction, an apology accepted after a mistake | `kind:lesson` |
-     | "yes exactly", "perfect, keep doing that", "这就是我要的", validation of a non-obvious choice you made | `kind:lesson` (what worked and why) or `kind:skill` if it was a multi-step procedure |
-     | "always / never", "from now on", "as a rule", naming/style/tool preferences, agreed policies | `kind:convention` |
-     | Identity, role, long-term goal, team, stable project fact, unchanging constraint | `kind:core-fact` |
-     | A non-trivial procedure that succeeded (several tool calls, trial and error, course changes) or one the user explicitly asks you to remember | `kind:skill` |
-     | Ongoing work that will be referenced across turns or sessions | `kind:task` |
+Local alpha means knowledge specific to this person, team, repo, project,
+environment, decision, failure, preference, or procedure. Do not store generic
+public knowledge unless it is tied to a local convention or decision.
 
-     If two or more `kind:lesson` memories start pointing at the same corrective direction, promote them to one `kind:skill` and close the originals with `superseded-by: #N` in the body — see [references/review.md](references/review.md).
-   - "Skill" in this skill always means a ClawMem `kind:skill` memory — an issue written through `memory_store` / `memory_update` using the YAML body template in [references/schema.md § Skill body template](references/schema.md#skill-body-template-kindskill). When the user says "沉淀成 skill", "存成 skill", "记住这个流程", "remember this procedure", or similar, they mean a `kind:skill` memory, not a file-based skill package. Do not invoke the file-based `skill-creator` or write `skills/<name>/SKILL.md` in response to these phrases. Only generate a file-based skill package when the user explicitly asks for one ("打包成 skill 文件", "make a skill package", naming an on-disk path).
-   - Before your first `memory_store` with `kind:skill` in a session, read [references/schema.md § Skill body template](references/schema.md#skill-body-template-kindskill) and write the initial `detail` body using that YAML skeleton (`trigger` / `steps` / `checks` / `last_validated` / `evidence`). Do not save the skill as free-form prose and plan to "clean it up later" — the first save should already be in the canonical shape so future `memory_update` calls can refine it in place.
-3. Periodically self-review.
-   - Every ~8–10 user turns, after a completed task, or when a `<clawmem-review-nudge>` block appears in context, run the review protocol in [references/review.md](references/review.md) before the next turn completes.
-   - The `memory_review` tool returns the latest review checklist. Call it when you want a compact reminder of what to look for, or when the user explicitly asks for a memory or skill review.
-   - Review is where `kind:skill` and `kind:lesson` actually accumulate; do not rely on session finalization alone.
-4. Keep the user posted.
-   - If a retrieved memory materially shaped the answer, briefly surface that fact in the user's current language.
-   - Include the memory id and title only when they help with debugging, traceability, or an explicit user request.
-   - After creating or updating a memory, give a short confirmation in the user's current language instead of forcing fixed English phrasing.
+## Scope And Routing
 
-Bias toward saving, and use explicit retrieval whenever auto-recall is absent, weak, cross-repo, or too ambiguous to trust on its own. Do not assume a just-finished turn has already been captured as durable memory unless you explicitly wrote it or later verified it after the session finalized.
+Before any explicit recall, store, update, close, or schema-sensitive operation:
 
-## Retrieval and storage rules
+```sh
+eval "$(python3 scripts/clawmem_exports.py)"
+```
 
-- Before inventing a new `kind` or `topic`, call `memory_labels` and reuse the existing schema when possible.
-- If no current label fits, create one new stable machine-readable label within `kind:*` or `topic:*`. Do not create translated variants or near-duplicate synonyms of an existing label.
-- Reuse stable labels over one-off labels.
-- Private personal memory usually belongs in the agent's `defaultRepo`.
-- Project memory belongs in the relevant project repo.
-- Shared or team knowledge belongs in the shared repo for that group.
-- Shared or team knowledge in another repo is not part of default auto-recall today. To use it, select that repo explicitly with `memory_recall`, `memory_list`, or `memory_get`.
-- Memory titles and bodies default to the user's current language for new memories.
-- Prefer a short standalone title plus a fuller `detail` body instead of stuffing the whole memory into the title.
-- If you omit `title`, the plugin may derive it from `detail`, but providing an explicit title is preferred for readability in the Console.
-- When updating an existing memory, keep that node in its current language unless the user explicitly asks to rewrite it.
-- Keep schema labels and machine-oriented fields stable. Do not translate `type:*`, `kind:*`, `topic:*`, or other structural identifiers.
-- If the user is asking about collaboration, organizations, teams, invitations, collaborators, shared repo access, or why someone can or cannot access a memory repo, switch from normal memory reasoning to the collaboration workflow in `references/collaboration.md`.
-- If the user wants Team design, Team setup, or a Team workflow template, use an external ClawMem Team skill pack such as `clawmem-team-skills` instead of inventing an in-plugin workflow.
+This exports `CLAWMEM_AGENT_ID`, `CLAWMEM_BASE_URL`, `CLAWMEM_HOST`,
+`CLAWMEM_DEFAULT_REPO`, `CLAWMEM_REPO`, and `CLAWMEM_TOKEN`.
 
-## Read the right reference
+Never print, store, paste, log, or commit the token.
 
-- For user-facing runtime messaging, memory console links, and post-save confirmations, read [references/communication.md](references/communication.md).
-- For activation repair, route verification, tool-path verification, and compatibility-file reminders after install, read [references/repair.md](references/repair.md).
-- For shared repos, team memory, organizations, teams, invitations, collaborators, and collaboration routing, read [references/collaboration.md](references/collaboration.md).
-- For memory kinds, labels, curated versus plugin-managed nodes, the `kind:skill` body template, and when to use each shape, read [references/schema.md](references/schema.md).
-- For the periodic self-review protocol (memory + skill tracks, lesson-to-skill promotion, anti-patterns), read [references/review.md](references/review.md).
-- For raw `gh` or `curl` flows, route resolution, troubleshooting, and `git push` to ClawMem, read [references/manual-ops.md](references/manual-ops.md).
+Then:
 
-## Bundled script
+- list accessible repos and choose the right owner/repo
+- prefer explicit user-, team-, or project-selected repos
+- use the configured default repo only when it is clearly the intended scope
+- list labels in the chosen repo before recall or write
+- create missing required labels before writing
 
-Use [scripts/clawmem_exports.py](scripts/clawmem_exports.py) when you need shell exports for the current agent route. It resolves `CLAWMEM_BASE_URL`, `CLAWMEM_HOST`, `CLAWMEM_DEFAULT_REPO`, `CLAWMEM_REPO`, and `CLAWMEM_TOKEN` from the current OpenClaw config.
+Scope is represented by repo/org/team boundaries, not by `scope:*` labels. If
+multiple repos are plausible and the choice materially affects the answer or
+write, ask the user.
+
+For exact commands, read [references/github-ops.md](references/github-ops.md).
+
+## Recall
+
+Recall only open durable memories by default:
+
+- search the selected repo
+- require `type:memory`
+- inspect exact issues before relying on them
+- keep `type:conversation` issues out of normal online recall
+
+Conversation issues are mandatory transcript mirrors: provenance, audit trail,
+and rebuild input. If answer-bearing information exists only in a conversation
+issue, repair or create the durable memory issue instead of depending on raw
+transcript recall.
+
+Wiki recall is a booster, not a gate:
+
+- search issue memories directly even when wiki search is available
+- include relevant wiki pages as compact background context
+- follow visible `#123` / `owner/repo#123` refs to in-scope `type:memory` issues
+- treat wiki-referenced memories as boosted candidates, not the only candidates
+- ignore unsupported wiki prose when it would materially affect the answer
+
+For debugging recall quality, use backend search observability with
+`debug=true`. Do not treat snippets or matched fields alone as proof of final
+ranking contribution.
+
+For exact recall, wiki, and debug commands, read
+[references/github-ops.md](references/github-ops.md).
+
+## Retention
+
+Choose one write decision:
+
+- `ADD`: create a new memory issue
+- `UPDATE`: edit the existing canonical issue
+- `DELETE`: close a false, stale, superseded, or harmful issue with a reason
+- `NONE`: do not write
+
+Before writing, search for duplicates and conflicts. Prefer one canonical open
+issue per living subject/property when practical. Update canonical set or profile
+memories instead of scattering fragments across many near-duplicate issues.
+
+Write durable information to issue memory first. Promote to wiki only when the
+memory is high-importance, high-frequency, cross-task, current project/user/topic
+background, or useful for fast agent startup.
+
+Use answerable retention. `## Memory` must contain enough visible detail for a
+future agent to search, answer, judge, and maintain the memory without reopening
+raw transcript comments.
+
+Preserve exact answer-bearing values when provided:
+
+- names, places, organizations, dates, months, years, durations, quantities
+- list items, relation targets, causes, stated reasons, and constraints
+- event dates and original relative phrases when useful for review
+- uncertainty boundaries for supported inferences
+
+Do not store lossy summaries such as `Melanie has hobbies` when the source gave
+`pottery, camping, painting, and swimming`.
+
+Strong user corrections and validations are retention signals. Store the durable
+lesson, convention, or skill trigger when the signal would change future agent
+behavior. Do not save a play-by-play of the session; the transcript mirror
+already does that.
+
+For full schema, kinds, body format, and temporal rules, read
+[references/schema.md](references/schema.md).
+
+## Memory Body
+
+Use GitHub Flavored Markdown. Minimal body shape:
+
+```markdown
+## Memory
+
+The durable fact, preference, decision, task, lesson, profile note, insight, or
+skill trigger. Include exact values and boundaries needed for future answers.
+
+## Relations
+
+- Source: #123
+- Supersedes: #88
+
+## Notes
+
+Optional caveats or review notes.
+
+<!-- clawmem
+schema_version: clawmem/v2
+valid_from: 2026-04-24
+valid_to:
+-->
+```
+
+Labels:
+
+- always include `type:memory`
+- choose one `kind:*` when useful
+- use `topic:*` sparingly
+
+Default kinds:
+
+- `kind:fact`
+- `kind:preference`
+- `kind:convention`
+- `kind:decision`
+- `kind:task`
+- `kind:skill`
+- `kind:lesson`
+- `kind:profile`
+- `kind:insight`
+
+Lifecycle is native issue state: open means active; closed means inactive,
+stale, superseded, false, or archived. Put the inactive reason in the closing
+comment.
+
+## Wiki Context
+
+Wiki pages are context maps for agents, not a third memory record layer. They
+should summarize the current useful view and cite issue memories with visible
+references.
+
+Recommended page families:
+
+- `users/{user}`
+- `projects/{project}`
+- `topics/{topic}`
+- `decisions/{area}`
+- `workflows/{workflow}`
+
+Avoid default `sessions/*` wiki pages. Conversation issues already mirror raw
+episodes.
+
+Wiki maintenance rules:
+
+- create or update issue memory first
+- update wiki only for important or frequently reused context
+- summarize, do not copy every memory
+- keep visible issue refs
+- if wiki is stale, repair the wiki rather than changing the answer source
+
+## User Communication
+
+Memory work should not be surprising:
+
+- when memory materially shaped an answer, mention it briefly in the user's
+  current language
+- when a memory is created, updated, or closed, give a short confirmation
+- store human-readable titles and bodies in the user's current language when
+  creating new memories
+- preserve an existing memory issue's language unless the user asks for a rewrite
+- keep labels and structural markers such as `type:*`, `kind:*`, and `topic:*`
+  fixed and machine-readable
+
+Do not generate token-bearing console URLs unless the user explicitly asks for a
+console link and the route token was read for this authenticated session.
+
+## References
+
+- For memory schema, kinds, body format, wiki context maps, write decisions, and
+  temporal rules, read [references/schema.md](references/schema.md).
+- For concrete GitHub-compatible `gh` / `gh api` commands, read
+  [references/github-ops.md](references/github-ops.md).
+- For activation repair and route verification, read
+  [references/repair.md](references/repair.md).

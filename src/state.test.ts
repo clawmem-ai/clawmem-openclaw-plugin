@@ -39,7 +39,7 @@ async function testMigratesLegacyV2State(): Promise<void> {
     assert(state.version === 4, "expected state version 4 after migration");
     assert(Boolean(session), "expected migrated session to exist");
     assert(session?.derived?.summary.status === "error", "expected finalized legacy sessions without a final summary to surface as needing manual attention");
-    assert(session?.derived?.memory.capturedCursor === 4, "expected legacy memory sync cursor to migrate into capturedCursor");
+    assert(!("memory" in (session?.derived ?? {})), "expected legacy plugin-owned memory state to be dropped");
   });
 }
 
@@ -67,8 +67,7 @@ async function testNormalizesRunningTaskStates(): Promise<void> {
     const state = await loadState(filePath);
     const session = state.sessions["main:s-2"];
     assert(session?.derived?.summary.status === "idle", "expected running summary tasks to normalize to idle on load");
-    assert(session?.derived?.memory.status === "idle", "expected running memory tasks to normalize to idle on load");
-    assert(session?.derived?.memory.capturedCursor === 0, "expected captured cursor to preserve the applied progress");
+    assert(!("memory" in (session?.derived ?? {})), "expected running memory tasks to be discarded on load");
   });
 }
 
@@ -107,13 +106,54 @@ async function testPreservesCachedFinalArtifacts(): Promise<void> {
     const state = await loadState(filePath);
     const session = state.sessions["main:s-3"];
     assert(session?.derived?.summary.title === "Recovered title", "expected cached finalize title to survive state load");
-    assert(session?.derived?.memory.candidates?.length === 1, "expected cached memory candidates to survive state load");
-    assert(session?.derived?.memory.candidates?.[0]?.detail === "Store this durable fact.", "expected cached candidate detail to survive state load");
+    assert(!("memory" in (session?.derived ?? {})), "expected cached memory candidates to be dropped because retention is skill-driven");
+  });
+}
+
+async function testPreservesSessionRepo(): Promise<void> {
+  await withTempStateFile({
+    version: 4,
+    sessions: {
+      "main:s-4": {
+        sessionId: "s-4",
+        agentId: "main",
+        repo: "team/project-memory",
+        lastMirroredCount: 1,
+        turnCount: 1,
+      },
+    },
+  }, async (filePath) => {
+    const state = await loadState(filePath);
+    const session = state.sessions["main:s-4"];
+    assert(session?.repo === "team/project-memory", "expected session repo routing to survive state load");
+  });
+}
+
+async function testPreservesMirrorError(): Promise<void> {
+  await withTempStateFile({
+    version: 4,
+    sessions: {
+      "main:s-5": {
+        sessionId: "s-5",
+        agentId: "main",
+        lastMirroredCount: 3,
+        turnCount: 3,
+        lastMirrorError: "fetch failed",
+        lastMirrorAttemptAt: "2026-05-07T10:00:00.000Z",
+      },
+    },
+  }, async (filePath) => {
+    const state = await loadState(filePath);
+    const session = state.sessions["main:s-5"];
+    assert(session?.lastMirrorError === "fetch failed", "expected mirror errors to survive state load");
+    assert(session?.lastMirrorAttemptAt === "2026-05-07T10:00:00.000Z", "expected mirror attempt timestamp to survive state load");
   });
 }
 
 await testMigratesLegacyV2State();
 await testNormalizesRunningTaskStates();
 await testPreservesCachedFinalArtifacts();
+await testPreservesSessionRepo();
+await testPreservesMirrorError();
 
 console.log("state tests passed");

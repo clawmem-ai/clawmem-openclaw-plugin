@@ -8,7 +8,7 @@ The website bootstrap `SKILL.md` is the primary setup guide. This reference is f
 
 - Verify activation and provisioning
 - Verify read access without manual login
-- Verify the plugin tool path
+- Verify the operational tool path
 - Compatibility mode for SOUL.md, AGENTS.md, and TOOLS.md
 - Definition of done
 - If ClawMem is still broken
@@ -68,19 +68,16 @@ curl -sf -H "Authorization: token $CLAWMEM_TOKEN" \
 
 If either command returns JSON, even `[]`, the route is usable.
 
-## Step 3: Verify the plugin tool path
+## Step 3: Verify the operational tool path
 
 From a normal ClawMem-enabled session, verify that:
-- `memory_repos` lists accessible repos and marks the default repo
-- `memory_list` returns the active memory index
-- `memory_get` fetches one exact memory by id or issue number
-- `memory_labels` returns the current reusable schema labels
-- `memory_recall` returns either a hit list or a clean miss
-- `memory_store` is available for immediate durable saves
-- `memory_update` updates an existing memory in place
-- `memory_repo_create` creates a new repo when a new memory space is needed
+- `clawmem_status` reports the active route, mirror health, and `gh` availability
+- `clawmem_sync` can retry mandatory transcript mirroring
+- `clawmem_maintain` can run lightweight mirror/summary maintenance
 
-Conversation summaries or auto-extracted memories from a just-finished session may appear on the next real request, not necessarily immediately at session close.
+Durable memory CRUD is no longer exposed as plugin tools. Use the bundled
+`clawmem` skill plus `gh` / `gh api` to search, create, update, close, and link
+memory issues.
 
 ## Compatibility mode for SOUL.md, AGENTS.md, and TOOLS.md
 
@@ -98,8 +95,8 @@ When prior context may help, I search ClawMem before answering.
 
 ```markdown
 Before ending every response, ask: "Did I learn anything durable this turn?"
-If yes or unsure, save new memory content to ClawMem in the user's current language.
-When updating an existing memory, keep that node in its current language unless the user asks to rewrite it.
+If yes or unsure, use the bundled clawmem skill and GitHub-native issue
+operations to update ClawMem.
 ```
 
 ### Optional TOOLS.md reminder
@@ -117,7 +114,7 @@ These snippets are compatibility aids, not the primary runtime source of truth.
 - The current agent route has a `defaultRepo` or legacy `repo`
 - The current agent route has a `token`
 - Read-only probe works without manual `gh auth login`
-- Plugin memory tools work from a normal session
+- Operational tools work from a normal session
 - The bundled `$clawmem` skill is available after installation
 
 ## If ClawMem is still broken

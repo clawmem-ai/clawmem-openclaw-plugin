@@ -24,11 +24,11 @@ function createClientRecorder(): {
   const route: ClawMemResolvedRoute = {
     agentId: "main",
     baseUrl: "https://git.clawmem.ai/api/v3",
-    login: "main-user",
     defaultRepo: "alice/memory",
     repo: "alice/memory",
     token: "token-123",
     authScheme: "token",
+    apiRequestRetries: 3,
   };
 
   return {
@@ -85,107 +85,110 @@ async function testTeamGovernanceRoutes(): Promise<void> {
 async function testRepoTransferRoute(): Promise<void> {
   const { client, calls, restore } = createClientRecorder();
   try {
-    await client.transferRepo("alice", "memory", "acme", "hazel-e23778");
-    await client.renameRepo("acme", "memory", "hazel-e23778");
-    assert(calls.length === 2, "expected transfer and rename requests");
+    await client.transferRepo("alice", "memory", "acme");
+    assert(calls.length === 1, "expected one repo transfer request");
     assert(calls[0]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/transfer", "expected repo transfer route");
     assert(calls[0]?.init.method === "POST", "expected POST for repo transfer");
-    assert(String(calls[0]?.init.body) === "{\"new_owner\":\"acme\",\"new_repo_name\":\"hazel-e23778\"}", "expected repo transfer payload");
-    assert(calls[1]?.url === "https://git.clawmem.ai/api/v3/repos/acme/memory", "expected repo rename route");
-    assert(calls[1]?.init.method === "PATCH", "expected PATCH for repo rename");
-    assert(String(calls[1]?.init.body) === "{\"name\":\"hazel-e23778\"}", "expected repo rename payload");
+    assert(String(calls[0]?.init.body) === "{\"new_owner\":\"acme\"}", "expected repo transfer payload");
   } finally {
     restore();
   }
 }
 
-async function testCurrentUserRoute(): Promise<void> {
+async function testSearchIssuesPassesDebugFlags(): Promise<void> {
   const { client, calls, restore } = createClientRecorder();
   try {
-    await client.getCurrentUser();
-    assert(calls.length === 1, "expected one current user request");
-    assert(calls[0]?.url === "https://git.clawmem.ai/api/v3/user", "expected current user route");
-    assert(calls[0]?.init.method === "GET", "expected GET for current user route");
+    await client.searchIssues("redis repo:alice/memory", { perPage: 5, debug: true, textMatches: true });
+    const url = new URL(calls[0]?.url ?? "");
+    assert(url.searchParams.get("debug") === "true", "expected debug search flag");
+    assert(url.searchParams.get("text_matches") === "true", "expected text_matches search flag");
+    assert(url.searchParams.get("per_page") === "5", "expected per_page to be forwarded");
   } finally {
     restore();
   }
 }
 
-async function testOrgRepoAndIssueRoutes(): Promise<void> {
+async function testWikiRoutes(): Promise<void> {
   const { client, calls, restore } = createClientRecorder();
   try {
-    await client.createOrgRepo("acme", {
-      name: "collaboration-workspace",
-      description: "Shared collaboration workspace",
-      private: true,
-      autoInit: true,
-      hasIssues: true,
-      hasWiki: false,
-    });
-    await client.createIssue({
-      title: "Review gh-server issues",
-      body: "List issues that can be closed.",
-      labels: ["workflow:task", "status:handling", "owner:agent-a"],
-      assignees: ["agent-a"],
-      state: "open",
-    });
-    await client.listIssues({
-      state: "open",
-      labels: ["workflow:task", "status:handling"],
-      assignee: "agent-a",
-      sort: "updated",
-      direction: "desc",
-      since: "2026-04-13T00:00:00Z",
-      perPage: 5,
-    });
-    await client.getIssue(42);
-    await client.updateIssue(42, {
-      state: "closed",
-      stateReason: "completed",
-      labels: ["workflow:task", "status:done", "owner:agent-a"],
-      assignees: [],
-    });
-    await client.createComment(42, "Done. See the findings below.");
-    await client.listComments(42, {
-      perPage: 1,
-      sort: "updated",
-      direction: "desc",
-      since: "2026-04-13T00:00:00Z",
-      threaded: true,
-    });
-
-    assert(calls[0]?.url === "https://git.clawmem.ai/api/v3/orgs/acme/repos", "expected org repo create route");
-    assert(calls[0]?.init.method === "POST", "expected POST for org repo create");
-    assert(String(calls[0]?.init.body).includes("\"name\":\"collaboration-workspace\""), "expected org repo create payload to include repo name");
-    assert(String(calls[0]?.init.body).includes("\"has_wiki\":false"), "expected org repo create payload to include has_wiki");
-
-    assert(calls[1]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/issues", "expected issue create route");
-    assert(calls[1]?.init.method === "POST", "expected POST for issue create");
-    assert(String(calls[1]?.init.body).includes("\"labels\":[\"workflow:task\",\"status:handling\",\"owner:agent-a\"]"), "expected issue create payload to include labels");
-    assert(String(calls[1]?.init.body).includes("\"assignees\":[\"agent-a\"]"), "expected issue create payload to include assignees");
-
-    assert(
-      calls[2]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/issues?state=open&page=1&per_page=5&labels=workflow%3Atask%2Cstatus%3Ahandling&assignee=agent-a&sort=updated&direction=desc&since=2026-04-13T00%3A00%3A00Z",
-      "expected issue list query params",
-    );
-    assert(calls[3]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/issues/42", "expected issue get route");
-    assert(calls[4]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/issues/42", "expected issue update route");
-    assert(calls[4]?.init.method === "PATCH", "expected PATCH for issue update");
-    assert(String(calls[4]?.init.body).includes("\"state_reason\":\"completed\""), "expected issue update payload to include state_reason");
-    assert(String(calls[4]?.init.body).includes("\"assignees\":[]"), "expected issue update payload to allow clearing assignees");
-
-    assert(calls[5]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/issues/42/comments", "expected issue comment create route");
-    assert(calls[5]?.init.method === "POST", "expected POST for comment create");
-    assert(calls[6]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/issues/42/comments?page=1&per_page=1&sort=updated&direction=desc&since=2026-04-13T00%3A00%3A00Z&threaded=true", "expected issue comments list query params");
+    await client.searchWikiPages("memory architecture", { limit: 3, labels: ["context:project"] });
+    await client.getWikiPage("projects/clawmem");
+    const searchURL = new URL(calls[0]?.url ?? "");
+    assert(searchURL.pathname === "/api/v3/repos/alice/memory/wiki/search", "expected wiki search route");
+    assert(searchURL.searchParams.get("q") === "memory architecture", "expected wiki search query");
+    assert(searchURL.searchParams.get("limit") === "3", "expected wiki search limit");
+    assert(searchURL.searchParams.get("labels") === "context:project", "expected wiki label filter");
+    assert(calls[1]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/wiki/pages/projects%2Fclawmem", "expected nested wiki slug to be path-escaped");
   } finally {
     restore();
+  }
+}
+
+async function testTransientFailuresAreRetried(): Promise<void> {
+  const calls: FetchCall[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(input), init: init ?? {} });
+    if (calls.length === 1) return new Response("temporary", { status: 503 });
+    return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  const route: ClawMemResolvedRoute = {
+    agentId: "main",
+    baseUrl: "https://git.clawmem.ai/api/v3",
+    defaultRepo: "alice/memory",
+    repo: "alice/memory",
+    token: "token-123",
+    authScheme: "token",
+    apiRequestRetries: 1,
+  };
+  try {
+    const client = new GitHubIssueClient(route, {});
+    await client.searchIssues("redis");
+    assert(calls.length === 2, "expected transient 503 to be retried");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function testWriteRequestsAreNotBlindlyRetried(): Promise<void> {
+  const calls: FetchCall[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(input), init: init ?? {} });
+    return new Response("temporary", { status: 503 });
+  }) as typeof fetch;
+
+  const route: ClawMemResolvedRoute = {
+    agentId: "main",
+    baseUrl: "https://git.clawmem.ai/api/v3",
+    defaultRepo: "alice/memory",
+    repo: "alice/memory",
+    token: "token-123",
+    authScheme: "token",
+    apiRequestRetries: 3,
+  };
+  try {
+    const client = new GitHubIssueClient(route, {});
+    let message = "";
+    try {
+      await client.createIssue({ title: "Memory", body: "body", labels: ["type:memory"] });
+    } catch (error) {
+      message = String(error);
+    }
+    assert(message.includes("HTTP 503"), "expected failed write to surface without hidden retry");
+    assert(calls.length === 1, "expected non-idempotent write request not to be retried");
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 }
 
 await testOrgGovernanceRoutes();
 await testTeamGovernanceRoutes();
 await testRepoTransferRoute();
-await testCurrentUserRoute();
-await testOrgRepoAndIssueRoutes();
+await testSearchIssuesPassesDebugFlags();
+await testWikiRoutes();
+await testTransientFailuresAreRetried();
+await testWriteRequestsAreNotBlindlyRetried();
 
 console.log("github client tests passed");

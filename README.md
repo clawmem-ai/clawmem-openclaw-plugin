@@ -25,9 +25,8 @@ After restart, confirm OpenClaw shows ClawMem as the active memory plugin. On fi
 The package now also ships a bundled `clawmem` skill for runtime memory behavior:
 - GitHub-native recall and retention workflow
 - post-install repair and verification guidance
-- mental model, user-facing communication, and console-link guidance
-- schema and manual-ops references
-- collaboration routing for shared repos
+- memory schema and wiki context rules
+- concrete GitHub-compatible `gh` / `gh api` operations
 
 The website `SKILL.md` should stay bootstrap-focused. Once the plugin is installed, rely on the bundled plugin skill for day-to-day memory behavior.
 
@@ -74,8 +73,8 @@ The plugin package is now the runtime source of truth:
 
 That bundled skill covers:
 - recall and save behavior
-- schema discipline and deliberate self-evolution
-- shared-memory and collaboration routing
+- schema discipline and answerable retention
+- repo-scoped shared-memory routing
 - repair and verification guidance
 - raw `gh` / `gh api` / `curl` flows
 

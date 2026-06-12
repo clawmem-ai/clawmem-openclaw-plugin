@@ -3,8 +3,6 @@ import {
   buildAutoRecallContext,
   createClawMemPlugin,
   extractPromptTextForRecall,
-  resolveOpenClawHostVersion,
-  resolvePromptHookMode,
 } from "./service.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -44,7 +42,7 @@ function testExtractPromptFallsBackToLatestUserMessage(): void {
       { role: "user", text: "Please fix the login bug." },
     ],
   });
-  assert(prompt === "Please fix the login bug.", "expected the latest user message to remain the fallback when prompt text is not sanitized");
+  assert(prompt === "Please fix the login bug.", "expected the latest user message to be used when prompt text is not sanitized");
 }
 
 function testExtractPromptFromPromptField(): void {
@@ -85,7 +83,7 @@ function testBuildAutoRecallContext(): void {
   assert(context.includes("source-relative wording"), "expected guidance for conflicting computed dates");
   assert(context.includes("merge compatible values"), "expected guidance to merge list/profile recall values");
   assert(context.includes("favorite/current-favorite"), "expected guidance for direct favorite predicate matching");
-  assert(context.includes("current-playing"), "expected guidance for favorite fallback predicate matching");
+  assert(context.includes("current-playing"), "expected guidance for indirect favorite predicate matching");
   assert(context.includes("activity-in-month"), "expected guidance for activity month matching");
   assert(context.includes("supported inferences"), "expected guidance for likely/counterfactual answers");
   assert(context.includes('<clawmem-memory id=11>'), "expected each memory to have a stable block wrapper");
@@ -142,18 +140,14 @@ function testBuildClawMemPromptSection(): void {
 function createFakePluginApi(options?: {
   slot?: string;
   exposeCapability?: boolean;
-  exposePromptSection?: boolean;
-  runtimeVersion?: string;
   pluginConfig?: Record<string, unknown>;
 }) {
   let registeredCapability: { promptBuilder?: typeof buildClawMemPromptSection } | undefined;
-  let registeredPromptSection: typeof buildClawMemPromptSection | undefined;
   const registeredTools: string[] = [];
   const registeredToolEntries: Array<{ name?: string; execute?: (id: string, params: unknown) => Promise<unknown> | unknown }> = [];
   const handlers = new Map<string, Array<(...args: any[]) => unknown>>();
   const services: Array<Record<string, unknown>> = [];
   const warnings: string[] = [];
-  const infos: string[] = [];
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "clawmem-service-test-"));
   const api = {
     id: "clawmem",
@@ -171,11 +165,11 @@ function createFakePluginApi(options?: {
       ...(options?.pluginConfig ?? {}),
     },
     logger: {
-      info: (message: string) => { infos.push(message); },
+      info: () => {},
       warn: (message: string) => { warnings.push(message); },
     },
     runtime: {
-      version: options?.runtimeVersion ?? "2026.4.9",
+      version: "2026.4.9",
       config: {
         loadConfig: () => ({
           plugins: {
@@ -212,21 +206,12 @@ function createFakePluginApi(options?: {
             registeredCapability = capability;
           },
         }),
-    ...(options?.exposePromptSection === false
-      ? {}
-      : {
-          registerMemoryPromptSection: (builder: typeof buildClawMemPromptSection) => {
-            registeredPromptSection = builder;
-          },
-        }),
   };
 
   return {
     api,
     getRegisteredCapability: () => registeredCapability,
-    getRegisteredPromptSection: () => registeredPromptSection,
     getWarnings: () => warnings,
-    getInfos: () => infos,
     getRegisteredTools: () => registeredTools,
     getRegisteredTool: (name: string) => registeredToolEntries.find((tool) => tool.name === name),
     getHandler: (event: string) => handlers.get(event)?.[0],
@@ -245,15 +230,12 @@ function testRegistersAlwaysOnMemoryPromptCapability(): void {
   assert(prompt.includes("## ClawMem"), "expected the registered prompt builder to emit ClawMem guidance");
 }
 
-function testFallsBackToLegacyMemoryPromptSectionRegistration(): void {
+function testWarnsWhenMemoryCapabilityRegistrationIsMissing(): void {
   const fake = createFakePluginApi({ exposeCapability: false });
   createClawMemPlugin(fake.api as never);
 
   assert(!fake.getRegisteredCapability(), "expected no memory capability registration when the host lacks that API");
-  const builder = fake.getRegisteredPromptSection();
-  assert(Boolean(builder), "expected fallback registration through registerMemoryPromptSection");
-  const prompt = builder?.({ availableTools: new Set(["clawmem_status"]) }).join("\n") ?? "";
-  assert(prompt.includes("## ClawMem"), "expected the fallback builder to emit ClawMem guidance");
+  assert(fake.getWarnings().some((message) => message.includes("registerMemoryCapability")), "expected a warning when memory prompt registration is unavailable");
 }
 
 function testRegistersOnlyOperationalTools(): void {
@@ -262,50 +244,6 @@ function testRegistersOnlyOperationalTools(): void {
 
   const tools = fake.getRegisteredTools();
   assert(JSON.stringify(tools) === JSON.stringify(["clawmem_status", "clawmem_sync", "clawmem_maintain"]), "expected only operational ClawMem tools to be registered");
-}
-
-function testOlderHostWithoutPromptRegistrationDoesNotWarn(): void {
-  const fake = createFakePluginApi({
-    exposeCapability: false,
-    exposePromptSection: false,
-    runtimeVersion: "2026.3.13",
-  });
-  createClawMemPlugin(fake.api as never);
-
-  assert(fake.getWarnings().length === 0, "expected older hosts without prompt registration to avoid warnings");
-  assert(
-    fake.getInfos().some((message) => message.includes("falling back to before_prompt_build prependSystemContext")),
-    "expected older hosts to log an informational compatibility note",
-  );
-}
-
-function testModernHostWithoutPromptRegistrationWarns(): void {
-  const fake = createFakePluginApi({
-    exposeCapability: false,
-    exposePromptSection: false,
-    runtimeVersion: "2026.3.22",
-  });
-  createClawMemPlugin(fake.api as never);
-
-  assert(
-    fake.getWarnings().some((message) => message.includes("falling back to before_prompt_build prependSystemContext")),
-    "expected warning when a new-enough host is missing prompt registration",
-  );
-}
-
-async function testOlderModernHostInjectsPromptGuidanceViaPrependSystemContext(): Promise<void> {
-  const fake = createFakePluginApi({
-    exposeCapability: false,
-    exposePromptSection: false,
-    runtimeVersion: "2026.3.13",
-  });
-  createClawMemPlugin(fake.api as never);
-
-  const handler = fake.getHandler("before_prompt_build");
-  assert(typeof handler === "function", "expected before_prompt_build handler to be registered for modern hosts");
-  const result = await handler?.({ prompt: "hi" }, { agentId: "main" }) as { prependContext?: string; prependSystemContext?: string } | void;
-  assert(Boolean(result && result.prependSystemContext?.includes("## ClawMem")), "expected static ClawMem guidance to use prependSystemContext fallback");
-  assert(!result || !result.prependContext, "expected no dynamic recall context when the prompt is too short for auto-recall");
 }
 
 async function testAutoRecallUsesRepoOverride(): Promise<void> {
@@ -588,7 +526,6 @@ function testSkipsAlwaysOnPromptWhenClawMemIsNotSelectedMemoryPlugin(): void {
   createClawMemPlugin(fake.api as never);
 
   assert(!fake.getRegisteredCapability(), "expected no memory prompt registration when ClawMem is not the selected memory plugin");
-  assert(!fake.getRegisteredPromptSection(), "expected no legacy prompt registration when ClawMem is not selected");
 }
 
 function jsonResponse(value: unknown, status = 200): Response {
@@ -596,64 +533,6 @@ function jsonResponse(value: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-function testResolveHostVersionFromRuntime(): void {
-  const version = resolveOpenClawHostVersion({ runtime: { version: "2026.3.28" } } as never);
-  assert(version === "2026.3.28", "expected runtime.version to take precedence");
-}
-
-function testResolveHostVersionFromEnvFallback(): void {
-  const previous = {
-    OPENCLAW_VERSION: process.env.OPENCLAW_VERSION,
-    OPENCLAW_SERVICE_VERSION: process.env.OPENCLAW_SERVICE_VERSION,
-    npm_package_version: process.env.npm_package_version,
-  };
-  try {
-    delete process.env.OPENCLAW_VERSION;
-    process.env.OPENCLAW_SERVICE_VERSION = "2026.3.6";
-    delete process.env.npm_package_version;
-    const version = resolveOpenClawHostVersion({ runtime: {} } as never);
-    assert(version === "2026.3.6", "expected OPENCLAW_SERVICE_VERSION fallback");
-  } finally {
-    process.env.OPENCLAW_VERSION = previous.OPENCLAW_VERSION;
-    process.env.OPENCLAW_SERVICE_VERSION = previous.OPENCLAW_SERVICE_VERSION;
-    process.env.npm_package_version = previous.npm_package_version;
-  }
-}
-
-function testIgnoresNpmPackageVersionFallback(): void {
-  const previous = {
-    OPENCLAW_VERSION: process.env.OPENCLAW_VERSION,
-    OPENCLAW_SERVICE_VERSION: process.env.OPENCLAW_SERVICE_VERSION,
-    npm_package_version: process.env.npm_package_version,
-  };
-  try {
-    delete process.env.OPENCLAW_VERSION;
-    delete process.env.OPENCLAW_SERVICE_VERSION;
-    process.env.npm_package_version = "2026.3.99";
-    const version = resolveOpenClawHostVersion({ runtime: {} } as never);
-    assert(version === undefined, "expected npm_package_version to be ignored for host detection");
-  } finally {
-    process.env.OPENCLAW_VERSION = previous.OPENCLAW_VERSION;
-    process.env.OPENCLAW_SERVICE_VERSION = previous.OPENCLAW_SERVICE_VERSION;
-    process.env.npm_package_version = previous.npm_package_version;
-  }
-}
-
-function testResolvePromptHookModeModern(): void {
-  const mode = resolvePromptHookMode({ runtime: { version: "2026.3.28" } } as never);
-  assert(mode === "modern", "expected modern hook mode for OpenClaw 2026.3.28");
-}
-
-function testResolvePromptHookModeLegacy(): void {
-  const mode = resolvePromptHookMode({ runtime: { version: "2026.3.6" } } as never);
-  assert(mode === "legacy", "expected legacy hook mode before 2026.3.7");
-}
-
-function testResolvePromptHookModeLegacyForUnknownVersion(): void {
-  const mode = resolvePromptHookMode({ runtime: {} } as never);
-  assert(mode === "legacy", "expected unknown host versions to fall back to legacy mode");
 }
 
 testExtractPromptFromString();
@@ -664,19 +543,10 @@ testExtractPromptFromStructuredContent();
 testBuildAutoRecallContext();
 testBuildAutoRecallContextWithWikiContext();
 testBuildClawMemPromptSection();
-testResolveHostVersionFromRuntime();
-testResolveHostVersionFromEnvFallback();
-testIgnoresNpmPackageVersionFallback();
-testResolvePromptHookModeModern();
-testResolvePromptHookModeLegacy();
-testResolvePromptHookModeLegacyForUnknownVersion();
 testRegistersAlwaysOnMemoryPromptCapability();
-testFallsBackToLegacyMemoryPromptSectionRegistration();
+testWarnsWhenMemoryCapabilityRegistrationIsMissing();
 testRegistersOnlyOperationalTools();
-testOlderHostWithoutPromptRegistrationDoesNotWarn();
-testModernHostWithoutPromptRegistrationWarns();
 testSkipsAlwaysOnPromptWhenClawMemIsNotSelectedMemoryPlugin();
-await testOlderModernHostInjectsPromptGuidanceViaPrependSystemContext();
 await testAutoRecallUsesRepoOverride();
 await testAgentEndBindsSessionToRepoOverride();
 await testAgentEndBindsSessionToDefaultRepo();

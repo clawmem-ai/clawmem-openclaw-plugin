@@ -349,11 +349,6 @@ function parseStoredMemoryBody(rawBody: string): { detail: string; meta: Record<
   const trimmed = rawBody.trim();
   if (!trimmed) return { detail: "", meta: {} };
 
-  const legacyYaml = parseFlatYaml(trimmed);
-  if (legacyYaml.detail?.trim()) {
-    return { detail: legacyYaml.detail.trim(), meta: legacyYaml };
-  }
-
   const hiddenMeta = /(?:^|\n)<!--\s*clawmem(?:-meta)?\s*\n([\s\S]*?)\n-->\s*$/.exec(trimmed);
   const visible = hiddenMeta ? trimmed.slice(0, hiddenMeta.index).trim() : trimmed;
   const meta = hiddenMeta ? parseFlatYaml(hiddenMeta[1] ?? "") : {};

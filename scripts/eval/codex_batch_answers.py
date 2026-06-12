@@ -391,9 +391,9 @@ def predicted_ids(prediction: dict[str, Any], level: str) -> list[str]:
     values = unique_strings(prediction.get(field))
     if values:
         return values
-    for fallback in ("retrieval_results", "retrieved"):
-        if fallback in prediction:
-            return ids_from_objects(prediction.get(fallback), level)
+    for alternate_field in ("retrieval_results", "retrieved"):
+        if alternate_field in prediction:
+            return ids_from_objects(prediction.get(alternate_field), level)
     return []
 
 

@@ -1,5 +1,4 @@
 import { MemoryStore } from "./memory.js";
-import { stringifyFlatYaml } from "./yaml.js";
 
 type IssueRecord = { number: number; title?: string; body?: string; state?: "open" | "closed"; labels?: Array<{ name?: string } | string> };
 
@@ -38,21 +37,6 @@ function markdownMemory(overrides: {
       ...(overrides.kind ? [`kind:${overrides.kind}`] : []),
       ...((overrides.topics ?? []).map((topic) => `topic:${topic}`)),
     ],
-  };
-}
-
-function legacyYamlMemory(): IssueRecord {
-  return {
-    number: 7,
-    title: "Memory: legacy body",
-    body: stringifyFlatYaml([
-      ["memory_id", "legacy-7"],
-      ["memory_hash", "abc123"],
-      ["date", "2026-03-20"],
-      ["detail", "Legacy YAML bodies are still readable for recall."],
-    ]),
-    state: "open",
-    labels: ["type:memory", "kind:lesson", "topic:legacy"],
   };
 }
 
@@ -228,7 +212,7 @@ async function testQueryPlannerNormalizesKnownLexicalPitfalls(): Promise<void> {
   assert(queries.some((query) => query.includes("Tim Smoky Mountains photo")), "expected surface query to preserve proper plural Mountains");
 }
 
-async function testQueryPlannerCoreVariantCanBeatBroadEntityFallback(): Promise<void> {
+async function testQueryPlannerCoreVariantCanBeatBroadEntityVariant(): Promise<void> {
   const queries: string[] = [];
   const client = {
     repo: () => "owner/main-memory",
@@ -261,10 +245,10 @@ async function testQueryPlannerCoreVariantCanBeatBroadEntityFallback(): Promise<
   const found = await store.search("When did Sam and his friend decide to try kayaking?", 2);
 
   assert(queries.some((query) => query.includes("Sam kayaking")), "expected core query to drop weak friend term");
-  assert(found.map((memory) => memory.issueNumber).join(",") === "85,5", "expected core lexical hit to rank before broad entity fallback");
+  assert(found.map((memory) => memory.issueNumber).join(",") === "85,5", "expected core lexical hit to rank before broad entity variant");
 }
 
-async function testQueryPlannerVariantLimitThreeSkipsBroadFallbacks(): Promise<void> {
+async function testQueryPlannerVariantLimitThreeSkipsBroadEntityVariants(): Promise<void> {
   const queries: string[] = [];
   const client = {
     repo: () => "owner/main-memory",
@@ -277,7 +261,7 @@ async function testQueryPlannerVariantLimitThreeSkipsBroadFallbacks(): Promise<v
   await store.search("When did Sam and his friend decide to try kayaking?", 2);
 
   assert(queries.length === 3, "expected planner variant limit 3 to run only full, compact, and core variants");
-  assert(!queries.some((query) => query.includes("Sam repo:")), "expected planner variant limit 3 not to run the broad entity-only fallback");
+  assert(!queries.some((query) => query.includes("Sam repo:")), "expected planner variant limit 3 not to run the broad entity-only variant");
 }
 
 async function testQueryPlannerVariantLimitCanBeLowered(): Promise<void> {
@@ -295,20 +279,6 @@ async function testQueryPlannerVariantLimitCanBeLowered(): Promise<void> {
   assert(queries.length === 2, "expected explicit planner variant limit to cap search fanout");
   assert(queries.some((query) => query.includes("James sign up")), "expected full query to run");
   assert(queries.some((query) => query.includes("James cooking class")), "expected compact query to run");
-}
-
-async function testLegacyYamlBodiesRemainReadableForRecall(): Promise<void> {
-  const client = {
-    repo: () => "owner/main-memory",
-    searchIssues: async () => [legacyYamlMemory()],
-  };
-  const store = new MemoryStore(client as never);
-  const found = await store.search("legacy body", 1);
-
-  assert(found[0]?.memoryId === "legacy-7", "expected legacy memory_id to be preserved");
-  assert(found[0]?.memoryHash === "abc123", "expected legacy memory_hash to be preserved");
-  assert(found[0]?.date === "2026-03-20", "expected legacy date metadata to be preserved");
-  assert(found[0]?.detail === "Legacy YAML bodies are still readable for recall.", "expected legacy detail to be readable");
 }
 
 async function testBackendSearchReturnsEmptyWithoutLexicalFallback(): Promise<void> {
@@ -433,10 +403,9 @@ await testLiteralRepairCanReserveLexicalSlot();
 await testLiteralRepairIgnoresSemanticOnlyRepairHits();
 await testQueryPlannerUsesStableCompactVariants();
 await testQueryPlannerNormalizesKnownLexicalPitfalls();
-await testQueryPlannerCoreVariantCanBeatBroadEntityFallback();
-await testQueryPlannerVariantLimitThreeSkipsBroadFallbacks();
+await testQueryPlannerCoreVariantCanBeatBroadEntityVariant();
+await testQueryPlannerVariantLimitThreeSkipsBroadEntityVariants();
 await testQueryPlannerVariantLimitCanBeLowered();
-await testLegacyYamlBodiesRemainReadableForRecall();
 await testBackendSearchReturnsEmptyWithoutLexicalFallback();
 await testClosedIssuesAreFilteredFromRecall();
 await testWikiContextBoostsReferencedMemoryIssues();

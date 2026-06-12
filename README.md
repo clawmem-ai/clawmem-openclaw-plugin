@@ -20,7 +20,7 @@ openclaw config validate
 openclaw gateway restart
 ```
 
-After restart, confirm OpenClaw shows ClawMem as the active memory plugin. On first use, clawmem bootstraps each agent identity by calling `POST /api/v3/agents` on `git.clawmem.ai`, then writes the returned `token` plus `repo_full_name` back into your config under `plugins.entries.clawmem.config.agents.<agentId>` as that agent's `defaultRepo`. Automatic flows use that `defaultRepo`; explicit memory work should resolve the route and operate on GitHub-compatible repos through the bundled skill and `gh` / `gh api`. When talking to an older backend that does not expose `POST /api/v3/agents`, the plugin falls back to the deprecated anonymous bootstrap path.
+After restart, confirm OpenClaw shows ClawMem as the active memory plugin. On first use, clawmem bootstraps each agent identity by calling `POST /api/v3/agents` on `git.clawmem.ai`, then writes the returned `token` plus `repo_full_name` back into your config under `plugins.entries.clawmem.config.agents.<agentId>` as that agent's `defaultRepo`. Automatic flows use that `defaultRepo`; explicit memory work should resolve the route and operate on GitHub-compatible repos through the bundled skill and `gh` / `gh api`.
 
 The package now also ships a bundled `clawmem` skill for runtime memory behavior:
 - GitHub-native recall and retention workflow
@@ -84,8 +84,6 @@ provisions GitHub-compatible agents/repos, writes normal `type:memory` issues,
 recalls only memory issues, runs answer/judge batches, and classifies failures
 into retention, recall, and answer stages.
 
-If your environment still relies on file-injected reminders such as `SOUL.md`, `AGENTS.md`, or `TOOLS.md`, treat them as optional compatibility snippets rather than the primary runtime source of truth.
-
 ---
 
 ## Config Reference
@@ -115,8 +113,6 @@ Minimal config (after auto-provisioning):
   }
 }
 ```
-
-`repo` is still accepted as a legacy alias, but new installs should use `defaultRepo`.
 
 Full config with all options:
 
@@ -174,9 +170,9 @@ Full config with all options:
 - `valid_from` / `valid_to` describe memory validity. Event dates and relative-date conversions that matter for answering belong in the visible `## Memory` text.
 - Retention should include literal anchor ledgers when needed: dates, durations, quantities, exact item names, and first/last/current/planned facts belong in visible memory text, not only in transcript provenance.
 - Retention should also make supported inferences answer-shaped: likely/counterfactual/status/suitability memories need the likely answer, basis, and uncertainty boundary in visible text.
-- Always-on ClawMem prompt guidance uses the dedicated memory prompt-registration API on OpenClaw `2026.3.22+`. On `2026.3.7` through `2026.3.21`, ClawMem falls back to `before_prompt_build` `prependSystemContext`. Older hosts still support auto-recall, tools, and conversation mirroring, but they cannot inject the static always-on guidance.
+- Always-on ClawMem prompt guidance requires the dedicated memory prompt-registration API.
 - The plugin exposes `clawmem_status`, `clawmem_sync`, and `clawmem_maintain` only.
-- Route resolution is now: agent identity supplies credentials, `defaultRepo` is the fallback memory space, and explicit GitHub-native operations may override repo per operation.
+- Route resolution is now: agent identity supplies credentials, `defaultRepo` is the default memory space, and explicit GitHub-native operations may override repo per operation.
 - Memory issues no longer use `session:*` labels. Session linkage remains a conversation concern, not part of the durable memory schema.
 - Conversation lifecycle is stored in native issue state (`open` while live, `closed` after finalize); memory lifecycle uses native issue state too (`open` active, `closed` stale).
 - Memory issue bodies should use visible GitHub Flavored Markdown plus a minimal hidden `<!-- clawmem ... -->` metadata block.

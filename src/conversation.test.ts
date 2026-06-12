@@ -71,7 +71,7 @@ async function testLoadSnapshotPrefersFallbackMessages(): Promise<void> {
     turnCount: 0,
   };
   const snapshot = await mirror.loadSnapshot(session, [{ role: "user", text: "Use the in-request transcript." }]);
-  assert(snapshot.messages.length === 1, "expected loadSnapshot to return fallback messages");
+  assert(snapshot.messages.length === 1, "expected loadSnapshot to return in-request messages");
   assert(snapshot.messages[0]?.text === "Use the in-request transcript.", "expected loadSnapshot to prefer in-request messages over transcript files");
 }
 
@@ -138,7 +138,7 @@ async function main(): Promise<void> {
     }
   }
   await testLoadSnapshotPrefersFallbackMessages();
-  console.log("PASS: loadSnapshot prefers fallback messages");
+  console.log("PASS: loadSnapshot prefers in-request messages");
   testBuildFinalizeArtifactsPromptOnlySummarizesConversation();
   console.log("PASS: buildFinalizeArtifactsPrompt only summarizes conversation");
   testBatchTranscriptCommentsDefaultsToSingleMessageComments();

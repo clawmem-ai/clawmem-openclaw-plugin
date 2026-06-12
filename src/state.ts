@@ -38,6 +38,9 @@ function sanitizeState(value: unknown): PluginState {
     return structuredClone(EMPTY_STATE);
   }
   const raw = value as Record<string, unknown>;
+  if (raw.version !== EMPTY_STATE.version) {
+    return structuredClone(EMPTY_STATE);
+  }
   const sessions = raw.sessions && typeof raw.sessions === "object"
     ? (raw.sessions as Record<string, unknown>)
     : {};
@@ -92,24 +95,22 @@ function sanitizeDerivedState(
 ): SessionDerivedState {
   const rawDerived = asRecord(rawSession.derived);
   const rawSummary = asRecord(rawDerived?.summary);
-  const legacySummaryStatus = readEnum(rawSession.summaryStatus, ["pending", "complete"]);
-
   const summaryText = readString(rawSummary?.text);
   const summaryTitle = readString(rawSummary?.title);
-  const summaryStatus = readTaskStatus(
+  const status = readTaskStatus(
     rawSummary?.status,
-    summaryText || legacySummaryStatus === "complete" ? "complete" : "idle",
+    summaryText ? "complete" : "idle",
   );
   const summaryCursor = clampCursor(
     readNumber(rawSummary?.basedOnCursor),
-    summaryStatus === "complete" ? lastMirroredCount : 0,
+    status === "complete" ? lastMirroredCount : 0,
     lastMirroredCount,
   );
 
   return {
     summary: {
       basedOnCursor: summaryCursor,
-      status: finalizedAt && summaryStatus === "idle" && lastMirroredCount > 0 ? "error" : summaryStatus,
+      status: finalizedAt && status === "idle" && lastMirroredCount > 0 ? "error" : status,
       ...(summaryText ? { text: summaryText } : {}),
       ...(summaryTitle ? { title: summaryTitle } : {}),
       ...(readString(rawSummary?.lastError) ? { lastError: readString(rawSummary?.lastError) } : {}),
@@ -139,21 +140,18 @@ function readRepo(value: unknown): string | undefined {
   return repo && /^[^/\s]+\/[^/\s]+$/.test(repo) ? repo : undefined;
 }
 
-function readTaskStatus(value: unknown, fallback: SessionTaskStatus): SessionTaskStatus {
-  const status = readEnum(value, ["idle", "pending", "running", "complete", "error"]);
-  if (!status) return fallback;
-  if (status === "pending" || status === "running") return "idle";
+function readTaskStatus(value: unknown, defaultStatus: SessionTaskStatus): SessionTaskStatus {
+  const status = readEnum(value, ["idle", "complete", "error"]);
+  if (!status) return defaultStatus;
   return status;
 }
 
 function readTitleSource(value: unknown): "placeholder" | "llm" | undefined {
-  const source = readEnum(value, ["placeholder", "digest", "llm"]);
-  if (!source) return undefined;
-  return source === "digest" ? "llm" : source;
+  return readEnum(value, ["placeholder", "llm"]);
 }
 
-function clampCursor(value: number | undefined, fallback: number, max: number): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return Math.min(max, Math.max(0, fallback));
+function clampCursor(value: number | undefined, defaultValue: number, max: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return Math.min(max, Math.max(0, defaultValue));
   return Math.min(max, Math.max(0, Math.floor(value)));
 }
 

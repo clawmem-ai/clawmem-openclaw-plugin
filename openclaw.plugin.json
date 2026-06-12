@@ -16,18 +16,6 @@
         "minLength": 1,
         "default": "https://git.clawmem.ai"
       },
-      "defaultRepo": {
-        "type": "string",
-        "pattern": "^[^/]+/[^/]+$"
-      },
-      "repo": {
-        "type": "string",
-        "pattern": "^[^/]+/[^/]+$"
-      },
-      "token": {
-        "type": "string",
-        "minLength": 1
-      },
       "authScheme": {
         "type": "string",
         "enum": ["token", "bearer"]
@@ -44,10 +32,6 @@
               "minLength": 1
             },
             "defaultRepo": {
-              "type": "string",
-              "pattern": "^[^/]+/[^/]+$"
-            },
-            "repo": {
               "type": "string",
               "pattern": "^[^/]+/[^/]+$"
             },
@@ -107,21 +91,6 @@
       "label": "API Base URL",
       "placeholder": "https://git.clawmem.ai",
       "help": "GitHub-compatible API base URL. Root URLs are normalized to /api/v3 automatically."
-    },
-    "defaultRepo": {
-      "label": "Default Repo",
-      "placeholder": "owner/repo",
-      "help": "Default memory repo for automatic flows and skill-driven GitHub-native operations."
-    },
-    "repo": {
-      "label": "Repository",
-      "placeholder": "owner/repo",
-      "help": "Legacy alias for defaultRepo. New installs should use defaultRepo or per-agent defaultRepo under agents.<agentId>."
-    },
-    "token": {
-      "label": "API Token",
-      "sensitive": true,
-      "help": "Legacy single-route setting. New installs should use per-agent routes under agents.<agentId>."
     },
     "authScheme": {
       "label": "Auth Scheme",

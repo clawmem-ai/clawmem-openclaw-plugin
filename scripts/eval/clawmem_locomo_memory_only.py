@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run a skill-driven ClawMem memory-only LoCoMo pass.
 
-The runner avoids the deprecated memory CRUD tools. It provisions one
+The runner uses the GitHub-native memory workflow. It provisions one
 GitHub-compatible agent identity, creates one repo per source conversation,
 extracts answer-complete memory issues from source transcripts, stores them as
 normal issues, and recalls only open type:memory issues for benchmark questions.
@@ -491,11 +491,7 @@ class ApiClient:
 
 def provision_agent(client: ApiClient, agent_id: str) -> dict[str, str]:
     prefix = normalize_part(agent_id).replace("_", "-")[:32].strip("-") or "eval-locomo"
-    try:
-        identity = client.request("POST", "agents", {"prefix_login": prefix, "default_repo_name": "memory"}, auth=False)
-    except Exception as error:
-        log(f"WARN /agents provision failed ({error}); falling back to anonymous/session")
-        identity = client.request("POST", "anonymous/session", {}, auth=False)
+    identity = client.request("POST", "agents", {"prefix_login": prefix, "default_repo_name": "memory"}, auth=False)
     token = str(identity.get("token") or "").strip()
     repo = str(identity.get("repo_full_name") or "").strip()
     if not token or "/" not in repo:

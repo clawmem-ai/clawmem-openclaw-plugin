@@ -25,10 +25,10 @@ export class ConversationMirror {
     return true;
   }
 
-  async loadSnapshot(session: SessionMirrorState, fallback: unknown[]): Promise<TranscriptSnapshot> {
-    const normalizedFallback = normalizeMessages(fallback);
-    if (normalizedFallback.length > 0) {
-      return { sessionId: session.sessionId, messages: normalizedFallback };
+  async loadSnapshot(session: SessionMirrorState, inRequestMessages: unknown[]): Promise<TranscriptSnapshot> {
+    const normalizedInRequestMessages = normalizeMessages(inRequestMessages);
+    if (normalizedInRequestMessages.length > 0) {
+      return { sessionId: session.sessionId, messages: normalizedInRequestMessages };
     }
     const filePath = await this.resolveTranscriptPath(session.sessionFile);
     if (filePath) {
@@ -40,7 +40,7 @@ export class ConversationMirror {
         this.api.logger.warn(`clawmem: transcript read failed for ${filePath}: ${String(error)}`);
       }
     }
-    return { sessionId: session.sessionId, messages: normalizedFallback };
+    return { sessionId: session.sessionId, messages: normalizedInRequestMessages };
   }
 
   async ensureIssue(session: SessionMirrorState, snapshot: TranscriptSnapshot): Promise<void> {
@@ -174,9 +174,9 @@ export class ConversationMirror {
   private resolveDates(session: SessionMirrorState, messages: NormalizedMessage[]): { date: string; startAt: string; endAt: string } {
     const ts = messages.map((m) => m.timestamp).filter((v): v is string => Boolean(v?.trim()))
       .map((v) => new Date(v)).filter((d) => Number.isFinite(d.getTime()));
-    const fallbackStart = session.createdAt ? new Date(session.createdAt) : new Date();
-    const fallbackEnd = session.updatedAt ? new Date(session.updatedAt) : fallbackStart;
-    const start = ts[0] ?? fallbackStart, end = ts.at(-1) ?? fallbackEnd;
+    const defaultStart = session.createdAt ? new Date(session.createdAt) : new Date();
+    const defaultEnd = session.updatedAt ? new Date(session.updatedAt) : defaultStart;
+    const start = ts[0] ?? defaultStart, end = ts.at(-1) ?? defaultEnd;
     return { date: localDate(start), startAt: localDateTime(start), endAt: localDateTime(end) };
   }
 

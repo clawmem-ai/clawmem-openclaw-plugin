@@ -31,7 +31,7 @@ def main() -> int:
     route = agents.get(agent_id) or {}
 
     base_url = normalize_base_url(route.get("baseUrl") or cfg.get("baseUrl") or "")
-    default_repo = route.get("defaultRepo") or route.get("repo") or cfg.get("defaultRepo") or cfg.get("repo") or ""
+    default_repo = route.get("defaultRepo") or ""
     repo = repo_override or default_repo
     token = route.get("token") or ""
     host = base_url.removesuffix("/api/v3").replace("https://", "").replace("http://", "")

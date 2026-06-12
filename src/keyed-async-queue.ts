@@ -1,7 +1,7 @@
 /**
  * A keyed async queue that serializes async tasks per key.
- * Inlined from openclaw/plugin-sdk/keyed-async-queue to avoid
- * dependency on platform internals that may not exist in older versions.
+ * Kept local so transcript mirroring can serialize writes without depending on
+ * extra platform internals.
  *
  * Matches the behaviour of the upstream implementation: a failed task
  * does not block subsequent tasks on the same key.

@@ -51,9 +51,9 @@ export function normalizePermissionAlias(value: unknown): "none" | Collaboration
 
 export function resolveOrgInvitationRole(
   value: unknown,
-  fallback: CollaborationOrgInvitationRole,
+  defaultRole: CollaborationOrgInvitationRole,
 ): { role: CollaborationOrgInvitationRole } | { error: string } {
-  if (value === undefined || value === null || value === "") return { role: fallback };
+  if (value === undefined || value === null || value === "") return { role: defaultRole };
   if (typeof value !== "string") return { error: "role must be member or owner." };
   const normalized = value.trim().toLowerCase();
   if (normalized === "member" || normalized === "owner") return { role: normalized };

@@ -459,7 +459,7 @@ The model should usually receive synthesized memory, not raw issue dumps.
 If recall misses the budget, the turn proceeds without injected memory and a
 background maintenance task can refresh context for the next turn.
 
-Conversation issues are not a default fallback recall corpus. They are the raw
+Conversation issues are not the default online recall corpus. They are the raw
 source of truth for audit, repair, and re-retention. If a transcript detail is
 important enough to answer future questions, the retention helper should write
 or update a `type:memory` issue so the serving layer remains memory-first.
@@ -699,10 +699,9 @@ updates, and session lifecycle events.
 
 ### Hook Placement
 
-- Use memory prompt registration, when available, for stable ClawMem guidance.
-  Fallback prompt hooks should only inject concise guidance and dynamic context.
+- Use memory prompt registration for stable ClawMem guidance.
 - Use `before_prompt_build` for budgeted dynamic recall. This path must be fast,
-  bounded, and safe to skip.
+  bounded, and low-noise.
 - Use transcript update events and `agent_end` for incremental mirroring.
 - Use `before_reset` and `session_end` to flush mirrors and enqueue maintenance,
   not to run expensive synchronous extraction.
@@ -714,10 +713,8 @@ updates, and session lifecycle events.
 
 ### Critical Path Budget
 
-- Prompt construction must not wait on slow GitHub search, LLM extraction, or
-  broad dedupe.
-- Pre-turn recall should use cached context first, then a short-timeout recall
-  attempt, then gracefully skip.
+- Prompt construction must not wait on LLM extraction or broad dedupe.
+- Pre-turn recall should use bounded backend search only.
 - Post-turn retention should be asynchronous by default.
 - Reflection, profile refresh, and broad maintenance must be debounced and
   queued outside the immediate turn.
@@ -769,13 +766,6 @@ updates, and session lifecycle events.
 - Maintenance should prefer "do nothing" over writing uncertain or unlinked
   memories.
 
-### Compatibility With OpenClaw Versions
-
-- New prompt registration APIs should be preferred.
-- Older hook paths can be supported only as fallback implementation details.
-- Version checks should be explicit and logged once, not rediscovered on every
-  turn.
-
 ### Security And Prompt Hygiene
 
 - Never mirror system prompts, tool results, tokens, or internal helper chatter
@@ -816,7 +806,7 @@ updates, and session lifecycle events.
 
 ### Phase 3: Automate Recall And Retention
 
-- implement budgeted pre-turn recall helper invocation with cache fallback
+- implement budgeted pre-turn recall helper invocation
 - implement skill/agent-driven asynchronous post-turn retention
 - add active-agent retention hints before retention workflows run
 - add debounce/rate-limit controls for maintenance jobs
@@ -856,7 +846,7 @@ Pieces to replace:
 - broad `collaboration_*` tool family
 - plugin-managed finalize-time memory extraction
 - plugin-centric memory CRUD mental model
-- flat YAML-only memory body format
+- non-Markdown memory body formats
 
 ## 17. Open Questions
 

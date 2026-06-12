@@ -18,9 +18,9 @@ async function withTempStateFile(payload: unknown, fn: (filePath: string) => Pro
   }
 }
 
-async function testMigratesLegacyV2State(): Promise<void> {
+async function testIgnoresNonCurrentStateVersion(): Promise<void> {
   await withTempStateFile({
-    version: 2,
+    version: 3,
     sessions: {
       "main:s-1": {
         sessionId: "s-1",
@@ -28,24 +28,18 @@ async function testMigratesLegacyV2State(): Promise<void> {
         issueNumber: 10,
         lastMirroredCount: 6,
         turnCount: 6,
-        lastMemorySyncCount: 4,
-        summaryStatus: "pending",
-        finalizedAt: "2026-04-03T10:00:00.000Z",
       },
     },
   }, async (filePath) => {
     const state = await loadState(filePath);
-    const session = state.sessions["main:s-1"];
-    assert(state.version === 4, "expected state version 4 after migration");
-    assert(Boolean(session), "expected migrated session to exist");
-    assert(session?.derived?.summary.status === "error", "expected finalized legacy sessions without a final summary to surface as needing manual attention");
-    assert(!("memory" in (session?.derived ?? {})), "expected legacy plugin-owned memory state to be dropped");
+    assert(state.version === 4, "expected loader to return current empty state");
+    assert(Object.keys(state.sessions).length === 0, "expected non-current state versions to be ignored");
   });
 }
 
-async function testNormalizesRunningTaskStates(): Promise<void> {
+async function testInvalidTaskStatesUseCurrentFallback(): Promise<void> {
   await withTempStateFile({
-    version: 3,
+    version: 4,
     sessions: {
       "main:s-2": {
         sessionId: "s-2",
@@ -54,20 +48,13 @@ async function testNormalizesRunningTaskStates(): Promise<void> {
         turnCount: 3,
         derived: {
           summary: { basedOnCursor: 0, status: "running" },
-          memory: {
-            extractCursor: 1,
-            appliedCursor: 0,
-            extractStatus: "running",
-            reconcileStatus: "running",
-          },
         },
       },
     },
   }, async (filePath) => {
     const state = await loadState(filePath);
     const session = state.sessions["main:s-2"];
-    assert(session?.derived?.summary.status === "idle", "expected running summary tasks to normalize to idle on load");
-    assert(!("memory" in (session?.derived ?? {})), "expected running memory tasks to be discarded on load");
+    assert(session?.derived?.summary.status === "idle", "expected invalid summary task states to use the current default");
   });
 }
 
@@ -150,8 +137,8 @@ async function testPreservesMirrorError(): Promise<void> {
   });
 }
 
-await testMigratesLegacyV2State();
-await testNormalizesRunningTaskStates();
+await testIgnoresNonCurrentStateVersion();
+await testInvalidTaskStatesUseCurrentFallback();
 await testPreservesCachedFinalArtifacts();
 await testPreservesSessionRepo();
 await testPreservesMirrorError();

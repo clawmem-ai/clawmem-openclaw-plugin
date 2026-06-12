@@ -17,4 +17,4 @@ Current vNext rules:
   quantities, exact names, and first/last/current/planned facts that normal
   summaries tend to lose
 
-Legacy implementations used flat YAML memory bodies plus lifecycle/date labels. The runtime may still recognize enough legacy data for recall and label cleanup, but new memory records should follow the schema documented by the ClawMem skill.
+Memory records must follow the schema documented by the ClawMem skill: visible GitHub Flavored Markdown plus the hidden `<!-- clawmem ... -->` metadata block.

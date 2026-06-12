@@ -2,16 +2,12 @@
 export type ClawMemAgentConfig = {
   baseUrl?: string;
   defaultRepo?: string;
-  repo?: string;
   token?: string;
   authScheme?: "token" | "bearer";
 };
 
 export type ClawMemPluginConfig = {
   baseUrl: string;
-  defaultRepo?: string;
-  repo?: string;
-  token?: string;
   authScheme: "token" | "bearer";
   agents: Record<string, ClawMemAgentConfig>;
   memoryAutoRecallLimit: number;
@@ -35,7 +31,6 @@ export type ClawMemResolvedRoute = {
 
 export type BootstrapIdentityResponse = { token: string; repo_full_name: string };
 export type AgentRegistrationResponse = BootstrapIdentityResponse & { login: string };
-export type AnonymousSessionResponse = BootstrapIdentityResponse & { owner_login: string; repo_name: string };
 export type SessionTaskStatus = "idle" | "complete" | "error";
 export type SessionSummaryState = {
   basedOnCursor: number;

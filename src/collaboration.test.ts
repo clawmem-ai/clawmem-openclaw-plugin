@@ -10,8 +10,8 @@ function assert(condition: unknown, message: string): void {
 }
 
 function testOrgInvitationRoleValidation(): void {
-  const fallback = resolveOrgInvitationRole(undefined, "member");
-  assert("role" in fallback && fallback.role === "member", "expected undefined role to fall back to member");
+  const defaulted = resolveOrgInvitationRole(undefined, "member");
+  assert("role" in defaulted && defaulted.role === "member", "expected undefined role to use member");
 
   const owner = resolveOrgInvitationRole("owner", "member");
   assert("role" in owner && owner.role === "owner", "expected owner role to pass through");
@@ -32,9 +32,9 @@ function testDirectCollaboratorFiltering(): void {
   assert(collaborators[1]?.login === "bob", "expected bob to remain after owner filtering");
 }
 
-function testRepoSummaryFallback(): void {
+function testRepoSummaryFullNameDerivation(): void {
   assert(repoSummaryFullName({ full_name: "acme/project" }) === "acme/project", "expected explicit full_name to win");
-  assert(repoSummaryFullName({ owner: { login: "acme" }, name: "project" }) === "acme/project", "expected owner/name fallback to work");
+  assert(repoSummaryFullName({ owner: { login: "acme" }, name: "project" }) === "acme/project", "expected owner/name derivation to work");
 }
 
 async function testRepoAccessTeamsDerivation(): Promise<void> {
@@ -63,7 +63,7 @@ async function testRepoAccessTeamsDerivation(): Promise<void> {
 async function main(): Promise<void> {
   testOrgInvitationRoleValidation();
   testDirectCollaboratorFiltering();
-  testRepoSummaryFallback();
+testRepoSummaryFullNameDerivation();
   await testRepoAccessTeamsDerivation();
   console.log("collaboration tests passed");
 }

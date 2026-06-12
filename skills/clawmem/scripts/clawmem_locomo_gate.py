@@ -96,13 +96,13 @@ def iter_jsonl(paths: list[str]) -> list[dict[str, Any]]:
     return rows
 
 
-def source_id_for(row: dict[str, Any], fallback: str = "unknown") -> str:
+def source_id_for(row: dict[str, Any], default: str = "unknown") -> str:
     for key in ("source_id", "conversation_id", "conv_id"):
         value = str(row.get(key) or "").strip()
         if value:
             return value
     repo = str(row.get("repo") or row.get("repository") or "").strip()
-    return repo or fallback
+    return repo or default
 
 
 def memory_text(row: dict[str, Any]) -> str:

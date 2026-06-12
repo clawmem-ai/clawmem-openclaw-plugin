@@ -10,19 +10,12 @@ function baseConfig(): ClawMemPluginConfig {
   return {
     baseUrl: "https://git.clawmem.ai/api/v3",
     authScheme: "token",
-    token: "top-token",
-    defaultRepo: "global/default-memory",
-    repo: "global/legacy-memory",
     agents: {
       main: {
         token: "agent-token",
         defaultRepo: "main/private-memory",
       },
-      legacy: {
-        token: "legacy-token",
-        repo: "legacy/old-memory",
-      },
-      identityOnly: {
+      identityonly: {
         token: "identity-token",
       },
     },
@@ -50,19 +43,25 @@ function testRepoOverride(): void {
   assert(route.repo === "org/shared-memory", "expected explicit repo override to win");
 }
 
-function testLegacyRepoFallback(): void {
-  const route = resolveAgentRoute(baseConfig(), "legacy");
-  assert(route.defaultRepo === "legacy/old-memory", "expected legacy repo to act as defaultRepo fallback");
-  assert(route.repo === "legacy/old-memory", "expected selected repo to use the legacy repo fallback");
-}
-
 function testIdentityOnlyStillConfigured(): void {
   const config = baseConfig();
-  delete config.defaultRepo;
-  delete config.repo;
   const route = resolveAgentRoute(config, "identityOnly");
   assert(isAgentConfigured(route) === true, "expected an identity with baseUrl and token to count as configured");
   assert(hasDefaultRepo(route) === false, "expected no default repo when only credentials are present");
+}
+
+function testRootSingleRouteConfigIsIgnored(): void {
+  const config = resolvePluginConfig({
+    pluginConfig: {
+      token: "root-token",
+      defaultRepo: "root/default-memory",
+      repo: "root/ignored-memory",
+    },
+  } as never);
+  const route = resolveAgentRoute(config, "main");
+  assert(route.token === undefined, "expected root token not to configure an agent identity");
+  assert(route.defaultRepo === undefined, "expected root defaultRepo/repo not to configure an agent route");
+  assert(route.repo === undefined, "expected selected repo to remain missing without per-agent defaultRepo");
 }
 
 function testBootstrapRegistrationUsesStableDefaults(): void {
@@ -100,8 +99,8 @@ function testAutoRecallPlannerVariantLimitDefaultsAndClamps(): void {
 
 testDefaultRepoResolution();
 testRepoOverride();
-testLegacyRepoFallback();
 testIdentityOnlyStillConfigured();
+testRootSingleRouteConfigIsIgnored();
 testBootstrapRegistrationUsesStableDefaults();
 testBootstrapRegistrationTrimsLongPrefixes();
 testAutoRecallStrategyDefaultsToQueryPlanner();

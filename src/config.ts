@@ -26,17 +26,13 @@ export function resolvePluginConfig(api: OpenClawPluginApi): ClawMemPluginConfig
     const agent = rawAgentConfig as Record<string, unknown>;
     agents[agentId] = {
       baseUrl: str(agent.baseUrl)?.replace(/\/+$/, ""),
-      defaultRepo: normalizeRepoName(str(agent.defaultRepo) ?? str(agent.repo)),
-      repo: str(agent.repo),
+      defaultRepo: normalizeRepoName(str(agent.defaultRepo)),
       token: str(agent.token),
       authScheme: agent.authScheme === "bearer" ? "bearer" : agent.authScheme === "token" ? "token" : undefined,
     };
   }
   return {
     baseUrl: baseUrl.endsWith("/api/v3") ? baseUrl : `${baseUrl}/api/v3`,
-    defaultRepo: normalizeRepoName(str(raw.defaultRepo) ?? str(raw.repo)),
-    repo: normalizeRepoName(str(raw.repo)),
-    token: str(raw.token),
     authScheme: raw.authScheme === "bearer" ? "bearer" : "token",
     agents,
     memoryAutoRecallLimit: clamp(num(raw.memoryAutoRecallLimit, 3), 1, 20),
@@ -55,14 +51,14 @@ export function resolveAgentRoute(config: ClawMemPluginConfig, agentId?: string,
   const id = normalizeAgentId(agentId);
   const agent = config.agents[id] ?? {};
   const baseUrl = (agent.baseUrl ?? config.baseUrl).replace(/\/+$/, "");
-  const defaultRepo = normalizeRepoName(agent.defaultRepo ?? agent.repo) ?? config.defaultRepo ?? normalizeRepoName(config.repo);
+  const defaultRepo = normalizeRepoName(agent.defaultRepo);
   const repo = normalizeRepoName(repoOverride) ?? defaultRepo;
   return {
     agentId: id,
     baseUrl: baseUrl.endsWith("/api/v3") ? baseUrl : `${baseUrl}/api/v3`,
     ...(defaultRepo ? { defaultRepo } : {}),
     ...(repo ? { repo } : {}),
-    token: agent.token?.trim() || config.token?.trim() || undefined,
+    token: agent.token?.trim() || undefined,
     authScheme: agent.authScheme === "bearer" ? "bearer" : agent.authScheme === "token" ? "token" : config.authScheme,
     apiRequestRetries: config.apiRequestRetries,
   };

@@ -200,10 +200,10 @@ def load_memories(paths: list[str], memory_map: dict[str, dict[str, Any]]) -> di
 def append_memory(
     out: dict[str, list[dict[str, Any]]],
     memory: dict[str, Any],
-    fallback_source_id: str,
+    default_source_id: str,
     memory_map: dict[str, dict[str, Any]],
 ) -> None:
-    source_id = source_id_for(memory, fallback_source_id)
+    source_id = source_id_for(memory, default_source_id)
     key = str(memory.get("memory_key") or "").strip()
     mapped = memory_map.get(key, {})
     issue_number = str(memory.get("issue_number") or mapped.get("issue_number") or "").strip()

@@ -724,7 +724,7 @@ class ClawMemService {
   private async provisionAgentIdentity(client: GitHubIssueClient, agentId: string): Promise<{ identity: BootstrapIdentityResponse; method: string }> {
     const registration = buildAgentBootstrapRegistration(agentId);
     const identity = await client.registerAgent(registration.prefixLogin, registration.defaultRepoName);
-    return { identity, method: "/api/v3/agents" };
+    return { identity, method: "/api/ext/v1/agents" };
   }
   private warnIfInactiveMemorySlot(): void {
     try {

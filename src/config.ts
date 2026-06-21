@@ -15,7 +15,7 @@ export function resolvePluginConfig(api: OpenClawPluginApi): ClawMemPluginConfig
   const str = (v: unknown) => typeof v === "string" && v.trim() ? v.trim() : undefined;
   const num = (v: unknown, d: number) => typeof v === "number" && Number.isFinite(v) ? Math.floor(v) : d;
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-  const baseUrl = (str(raw.baseUrl) ?? "https://git.clawmem.ai").replace(/\/+$/, "");
+  const baseUrl = normalizeGitHubApiBaseUrl(str(raw.baseUrl) ?? "https://git.clawmem.ai");
   const rawAgents = raw.agents && typeof raw.agents === "object" && !Array.isArray(raw.agents)
     ? (raw.agents as Record<string, unknown>)
     : {};
@@ -25,14 +25,14 @@ export function resolvePluginConfig(api: OpenClawPluginApi): ClawMemPluginConfig
     const agentId = normalizeAgentId(rawAgentId);
     const agent = rawAgentConfig as Record<string, unknown>;
     agents[agentId] = {
-      baseUrl: str(agent.baseUrl)?.replace(/\/+$/, ""),
+      baseUrl: normalizeOptionalGitHubApiBaseUrl(str(agent.baseUrl)),
       defaultRepo: normalizeRepoName(str(agent.defaultRepo)),
       token: str(agent.token),
       authScheme: agent.authScheme === "bearer" ? "bearer" : agent.authScheme === "token" ? "token" : undefined,
     };
   }
   return {
-    baseUrl: baseUrl.endsWith("/api/v3") ? baseUrl : `${baseUrl}/api/v3`,
+    baseUrl,
     authScheme: raw.authScheme === "bearer" ? "bearer" : "token",
     agents,
     memoryAutoRecallLimit: clamp(num(raw.memoryAutoRecallLimit, 3), 1, 20),
@@ -50,12 +50,12 @@ export function resolvePluginConfig(api: OpenClawPluginApi): ClawMemPluginConfig
 export function resolveAgentRoute(config: ClawMemPluginConfig, agentId?: string, repoOverride?: string): ClawMemResolvedRoute {
   const id = normalizeAgentId(agentId);
   const agent = config.agents[id] ?? {};
-  const baseUrl = (agent.baseUrl ?? config.baseUrl).replace(/\/+$/, "");
+  const baseUrl = normalizeGitHubApiBaseUrl(agent.baseUrl ?? config.baseUrl);
   const defaultRepo = normalizeRepoName(agent.defaultRepo);
   const repo = normalizeRepoName(repoOverride) ?? defaultRepo;
   return {
     agentId: id,
-    baseUrl: baseUrl.endsWith("/api/v3") ? baseUrl : `${baseUrl}/api/v3`,
+    baseUrl,
     ...(defaultRepo ? { defaultRepo } : {}),
     ...(repo ? { repo } : {}),
     token: agent.token?.trim() || undefined,
@@ -108,4 +108,15 @@ function normalizeRepoName(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const trimmed = value.trim().replace(/^\/+|\/+$/g, "");
   return /^[^/\s]+\/[^/\s]+$/.test(trimmed) ? trimmed : undefined;
+}
+
+function normalizeOptionalGitHubApiBaseUrl(value: string | undefined): string | undefined {
+  return value ? normalizeGitHubApiBaseUrl(value) : undefined;
+}
+
+function normalizeGitHubApiBaseUrl(value: string): string {
+  const base = value.replace(/\/+$/, "");
+  if (base.endsWith("/api/v3")) return base;
+  if (base.endsWith("/api/ext/v1")) return base.replace(/\/api\/ext\/v1$/, "/api/v3");
+  return `${base}/api/v3`;
 }

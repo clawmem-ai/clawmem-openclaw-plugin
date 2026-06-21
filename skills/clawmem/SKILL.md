@@ -62,8 +62,9 @@ Before any explicit recall, store, update, close, or schema-sensitive operation:
 eval "$(python3 scripts/clawmem_exports.py)"
 ```
 
-This exports `CLAWMEM_AGENT_ID`, `CLAWMEM_BASE_URL`, `CLAWMEM_HOST`,
-`CLAWMEM_DEFAULT_REPO`, `CLAWMEM_REPO`, and `CLAWMEM_TOKEN`.
+This exports `CLAWMEM_AGENT_ID`, `CLAWMEM_BASE_URL`,
+`CLAWMEM_EXT_BASE_URL`, `CLAWMEM_HOST`, `CLAWMEM_DEFAULT_REPO`,
+`CLAWMEM_REPO`, and `CLAWMEM_TOKEN`.
 
 Never print, store, paste, log, or commit the token.
 

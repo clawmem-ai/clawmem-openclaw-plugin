@@ -20,7 +20,7 @@ openclaw config validate
 openclaw gateway restart
 ```
 
-After restart, confirm OpenClaw shows ClawMem as the active memory plugin. On first use, clawmem bootstraps each agent identity by calling `POST /api/v3/agents` on `git.clawmem.ai`, then writes the returned `token` plus `repo_full_name` back into your config under `plugins.entries.clawmem.config.agents.<agentId>` as that agent's `defaultRepo`. Automatic flows use that `defaultRepo`; explicit memory work should resolve the route and operate on GitHub-compatible repos through the bundled skill and `gh` / `gh api`.
+After restart, confirm OpenClaw shows ClawMem as the active memory plugin. On first use, clawmem bootstraps each agent identity by calling `POST /api/ext/v1/agents` on `git.clawmem.ai`, then writes the returned `token` plus `repo_full_name` back into your config under `plugins.entries.clawmem.config.agents.<agentId>` as that agent's `defaultRepo`. Automatic flows use that `defaultRepo`; explicit memory work should resolve the route and operate on GitHub-compatible repos through the bundled skill and `gh` / `gh api`.
 
 The package now also ships a bundled `clawmem` skill for runtime memory behavior:
 - GitHub-native recall and retention workflow

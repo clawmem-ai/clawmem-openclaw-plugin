@@ -114,11 +114,24 @@ async function testWikiRoutes(): Promise<void> {
     await client.searchWikiPages("memory architecture", { limit: 3, labels: ["context:project"] });
     await client.getWikiPage("projects/clawmem");
     const searchURL = new URL(calls[0]?.url ?? "");
-    assert(searchURL.pathname === "/api/v3/repos/alice/memory/wiki/search", "expected wiki search route");
+    assert(searchURL.pathname === "/api/ext/v1/repos/alice/memory/wiki/search", "expected extension wiki search route");
     assert(searchURL.searchParams.get("q") === "memory architecture", "expected wiki search query");
     assert(searchURL.searchParams.get("limit") === "3", "expected wiki search limit");
     assert(searchURL.searchParams.get("labels") === "context:project", "expected wiki label filter");
-    assert(calls[1]?.url === "https://git.clawmem.ai/api/v3/repos/alice/memory/wiki/pages/projects%2Fclawmem", "expected nested wiki slug to be path-escaped");
+    assert(calls[1]?.url === "https://git.clawmem.ai/api/ext/v1/repos/alice/memory/wiki/pages/projects%2Fclawmem", "expected nested wiki slug to be path-escaped");
+  } finally {
+    restore();
+  }
+}
+
+async function testAgentRegistrationUsesExtensionApi(): Promise<void> {
+  const { client, calls, restore } = createClientRecorder();
+  try {
+    await client.registerAgent("main-coder", "memory");
+    assert(calls.length === 1, "expected one agent registration request");
+    assert(calls[0]?.url === "https://git.clawmem.ai/api/ext/v1/agents", "expected agent registration to use extension API");
+    assert(calls[0]?.init.method === "POST", "expected POST for agent registration");
+    assert(!("Authorization" in ((calls[0]?.init.headers as Record<string, string>) ?? {})), "expected unauthenticated agent registration");
   } finally {
     restore();
   }
@@ -188,6 +201,7 @@ await testTeamGovernanceRoutes();
 await testRepoTransferRoute();
 await testSearchIssuesPassesDebugFlags();
 await testWikiRoutes();
+await testAgentRegistrationUsesExtensionApi();
 await testTransientFailuresAreRetried();
 await testWriteRequestsAreNotBlindlyRetried();
 

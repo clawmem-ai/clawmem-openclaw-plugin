@@ -24,6 +24,9 @@
     "dist",
     "openclaw.plugin.json",
     "skills",
+    "!skills/**/__pycache__",
+    "!skills/**/*.pyc",
+    "!skills/**/*.pyo",
     "README.md"
   ],
   "exports": {

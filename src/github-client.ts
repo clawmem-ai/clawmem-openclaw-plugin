@@ -149,11 +149,13 @@ export class GitHubIssueClient {
     q.set("offset", String(params?.offset ?? 0));
     for (const label of params?.labels ?? []) q.append("labels", label);
     for (const label of params?.excludeLabels ?? []) q.append("exclude_labels", label);
-    const res = await this.req<WikiSearchResponse>(`${this.repoPath("wiki/search")}?${q}`, { method: "GET" });
+    const path = `${this.repoPath("wiki/search")}?${q}`;
+    const res = await this.reqExt<WikiSearchResponse>(path, { method: "GET" });
     return Array.isArray(res?.results) ? res.results : [];
   }
   async getWikiPage(slug: string): Promise<WikiPageResponse> {
-    return this.req<WikiPageResponse>(this.repoPath(`wiki/pages/${encodeURIComponent(slug)}`), { method: "GET" });
+    const path = this.repoPath(`wiki/pages/${encodeURIComponent(slug)}`);
+    return this.reqExt<WikiPageResponse>(path, { method: "GET" });
   }
   async listLabels(params?: { page?: number; perPage?: number }): Promise<LabelResponse[]> {
     const q = new URLSearchParams();
@@ -368,7 +370,7 @@ export class GitHubIssueClient {
     await this.req(this.repoPath("").replace(/\/$/, ""), { method: "PATCH", body: JSON.stringify({ description }) });
   }
   async registerAgent(prefixLogin: string, defaultRepoName: string): Promise<AgentRegistrationResponse> {
-    return this.req<AgentRegistrationResponse>("agents", {
+    return this.reqExt<AgentRegistrationResponse>("agents", {
       method: "POST",
       body: JSON.stringify({
         prefix_login: prefixLogin,
@@ -381,14 +383,19 @@ export class GitHubIssueClient {
     if (!this.config.repo) throw new Error("clawmem repository is not configured");
     return `repos/${this.config.repo}/${suffix}`;
   }
+  private reqExt<T = void>(pathname: string, init: RequestInit, opts: ReqOpts = {}): Promise<T> {
+    return this.reqWithBase<T>(extensionApiBaseUrl(this.config.baseUrl), pathname, init, opts);
+  }
   private async req<T = void>(pathname: string, init: RequestInit, opts: ReqOpts = {}): Promise<T> {
+    return this.reqWithBase<T>(githubApiBaseUrl(this.config.baseUrl), pathname, init, opts);
+  }
+  private async reqWithBase<T = void>(baseUrl: string, pathname: string, init: RequestInit, opts: ReqOpts = {}): Promise<T> {
     if (!this.config.baseUrl) throw new Error("clawmem baseUrl is not configured");
     if (!opts.omitAuth && !this.config.token) throw new Error("clawmem token is not configured");
-    const base = this.config.baseUrl.replace(/\/+$/, "");
     const headers: Record<string, string> = { Accept: "application/vnd.github+json", "Content-Type": "application/json" };
     if (!opts.omitAuth) headers.Authorization = this.config.authScheme === "bearer" ? `Bearer ${this.config.token}` : `token ${this.config.token}`;
     const retries = isRetryableReadMethod(init.method) ? Math.max(0, Math.min(8, this.config.apiRequestRetries ?? 3)) : 0;
-    const res = await this.fetchWithRetry(new URL(pathname, `${base}/`), { ...init, headers: { ...headers, ...(init.headers ?? {}) } }, retries);
+    const res = await this.fetchWithRetry(new URL(pathname, `${baseUrl.replace(/\/+$/, "")}/`), { ...init, headers: { ...headers, ...(init.headers ?? {}) } }, retries);
     if (res.status === 404 && opts.allowNotFound) return undefined as T;
     if (res.status === 422 && opts.allowValidationError) return undefined as T;
     if (!res.ok) { const d = await res.text(); throw new Error(`HTTP ${res.status}: ${d || res.statusText}`); }
@@ -433,4 +440,18 @@ function sleep(ms: number): Promise<void> {
 function isRetryableReadMethod(method: string | undefined): boolean {
   const normalized = (method ?? "GET").toUpperCase();
   return normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS";
+}
+
+function githubApiBaseUrl(baseUrl: string): string {
+  const base = baseUrl.replace(/\/+$/, "");
+  if (base.endsWith("/api/v3")) return base;
+  if (base.endsWith("/api/ext/v1")) return base.replace(/\/api\/ext\/v1$/, "/api/v3");
+  return `${base}/api/v3`;
+}
+
+function extensionApiBaseUrl(baseUrl: string): string {
+  const base = baseUrl.replace(/\/+$/, "");
+  if (base.endsWith("/api/ext/v1")) return base;
+  if (base.endsWith("/api/v3")) return base.replace(/\/api\/v3$/, "/api/ext/v1");
+  return `${base}/api/ext/v1`;
 }

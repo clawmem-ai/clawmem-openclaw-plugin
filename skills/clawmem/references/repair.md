@@ -36,8 +36,8 @@ Then verify the current agent route. Resolve the current route with the bundled 
 
 ```sh
 eval "$(python3 scripts/clawmem_exports.py)"
-printf 'agent=%s\nbase=%s\ndefaultRepo=%s\ntoken=%s\n' \
-  "${CLAWMEM_AGENT_ID}" "${CLAWMEM_BASE_URL}" "${CLAWMEM_DEFAULT_REPO}" \
+printf 'agent=%s\nbase=%s\nextBase=%s\ndefaultRepo=%s\ntoken=%s\n' \
+  "${CLAWMEM_AGENT_ID}" "${CLAWMEM_BASE_URL}" "${CLAWMEM_EXT_BASE_URL}" "${CLAWMEM_DEFAULT_REPO}" \
   "$(test -n "${CLAWMEM_TOKEN}" && printf SET || printf MISSING)"
 ```
 

@@ -306,12 +306,12 @@ def main() -> None:
         base_url, agent_id, identity = load_config_identity(Path(args.config), args)
         log(f"reusing agent {agent_id} with owner {identity['repo_full_name'].split('/')[0]}")
     else:
-        base_url = args.base_url
+        base_url = normalize_github_api_base_url(args.base_url)
         agent_id = normalize_part(args.agent_id or f"{args.agent_prefix}-{datetime.now().strftime('%y%m%d-%H%M')}-{hashlib.sha1(os.urandom(16)).hexdigest()[:6]}")[:64]
         client = ApiClient(base_url, None, max_retries=args.api_retries)
         identity = provision_agent(client, agent_id)
     authed = ApiClient(base_url, identity["token"], max_retries=args.api_retries)
-    save_config(paths.config, base_url, agent_id, identity)
+    save_config(paths.config, authed.base_url, agent_id, identity)
 
     if not args.skip_extract:
         existing = load_grouped_memories(paths.memories) if args.resume else {}
@@ -446,14 +446,34 @@ class RunPaths:
         self.predictions = out_dir / f"{run_name}.predictions.jsonl"
 
 
+def normalize_github_api_base_url(raw: str) -> str:
+    value = (raw or "https://git.clawmem.ai/api/v3").rstrip("/")
+    if value.endswith("/api/ext/v1"):
+        return value[: -len("/api/ext/v1")] + "/api/v3"
+    if value.endswith("/api/v3"):
+        return value
+    return f"{value}/api/v3"
+
+
+def extension_api_base_url(github_base_url: str) -> str:
+    return normalize_github_api_base_url(github_base_url)[: -len("/api/v3")] + "/api/ext/v1"
+
+
 class ApiClient:
     def __init__(self, base_url: str, token: str | None, max_retries: int = 4) -> None:
-        self.base_url = base_url.rstrip("/")
+        self.base_url = normalize_github_api_base_url(base_url)
+        self.ext_base_url = extension_api_base_url(self.base_url)
         self.token = token
         self.max_retries = max(0, max_retries)
 
     def request(self, method: str, path: str, body: Any | None = None, auth: bool = True, ok_422: bool = False) -> Any:
-        url = f"{self.base_url}/{path.lstrip('/')}"
+        return self._request(self.base_url, method, path, body, auth, ok_422)
+
+    def request_ext(self, method: str, path: str, body: Any | None = None, auth: bool = True, ok_422: bool = False) -> Any:
+        return self._request(self.ext_base_url, method, path, body, auth, ok_422)
+
+    def _request(self, base_url: str, method: str, path: str, body: Any | None = None, auth: bool = True, ok_422: bool = False) -> Any:
+        url = f"{base_url}/{path.lstrip('/')}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
         headers = {"Accept": "application/vnd.github+json", "Content-Type": "application/json"}
         if auth:
@@ -491,7 +511,7 @@ class ApiClient:
 
 def provision_agent(client: ApiClient, agent_id: str) -> dict[str, str]:
     prefix = normalize_part(agent_id).replace("_", "-")[:32].strip("-") or "eval-locomo"
-    identity = client.request("POST", "agents", {"prefix_login": prefix, "default_repo_name": "memory"}, auth=False)
+    identity = client.request_ext("POST", "agents", {"prefix_login": prefix, "default_repo_name": "memory"}, auth=False)
     token = str(identity.get("token") or "").strip()
     repo = str(identity.get("repo_full_name") or "").strip()
     if not token or "/" not in repo:
@@ -587,7 +607,7 @@ def ensure_wiki_context_pages(client: ApiClient, by_source: dict[str, dict[str, 
             if key in existing:
                 continue
             body = render_wiki_context_page(source_id, memories_by_issue)
-            client.request("PUT", f"repos/{repo}/wiki/pages/{wiki_slug_path(slug)}", {
+            client.request_ext("PUT", f"repos/{repo}/wiki/pages/{wiki_slug_path(slug)}", {
                 "body": body,
                 "message": f"Update LoCoMo wiki context for {source_id}",
             })
@@ -616,7 +636,7 @@ def attach_cached_wiki_context_pages(client: ApiClient, by_source: dict[str, dic
         if not source or not repo or not slug:
             continue
         try:
-            page = client.request("GET", f"repos/{repo}/wiki/pages/{wiki_slug_path(slug)}")
+            page = client.request_ext("GET", f"repos/{repo}/wiki/pages/{wiki_slug_path(slug)}")
         except Exception as error:
             log(f"WARN cached wiki context load failed for {repo}/wiki/{slug}: {error}")
             continue
@@ -2230,7 +2250,7 @@ def search_wiki_contexts(client: ApiClient, repo: str, query_text: str, limit: i
         return []
     params = {"q": build_recall_query_text(query_text, "full"), "limit": str(limit)}
     try:
-        data = client.request("GET", f"repos/{repo}/wiki/search?{urllib.parse.urlencode(params)}")
+        data = client.request_ext("GET", f"repos/{repo}/wiki/search?{urllib.parse.urlencode(params)}")
     except Exception:
         return []
     results = data.get("results") if isinstance(data, dict) else []
@@ -2242,7 +2262,7 @@ def search_wiki_contexts(client: ApiClient, repo: str, query_text: str, limit: i
         if not slug:
             continue
         try:
-            page = client.request("GET", f"repos/{repo}/wiki/pages/{wiki_slug_path(slug)}")
+            page = client.request_ext("GET", f"repos/{repo}/wiki/pages/{wiki_slug_path(slug)}")
         except Exception:
             continue
         body = str(page.get("body") or "").strip() if isinstance(page, dict) else ""

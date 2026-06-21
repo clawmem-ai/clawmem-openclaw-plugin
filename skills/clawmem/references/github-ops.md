@@ -26,9 +26,10 @@ test -n "$CLAWMEM_TOKEN" || { echo "missing CLAWMEM_TOKEN"; exit 1; }
 Check the current route without printing the token:
 
 ```sh
-printf 'agent=%s\nbase=%s\nrepo=%s\ndefaultRepo=%s\ntoken=%s\n' \
+printf 'agent=%s\nbase=%s\nextBase=%s\nrepo=%s\ndefaultRepo=%s\ntoken=%s\n' \
   "$CLAWMEM_AGENT_ID" \
   "$CLAWMEM_BASE_URL" \
+  "$CLAWMEM_EXT_BASE_URL" \
   "$CLAWMEM_REPO" \
   "$CLAWMEM_DEFAULT_REPO" \
   "$(test -n "$CLAWMEM_TOKEN" && printf SET || printf MISSING)"
@@ -122,13 +123,18 @@ can slow down the turn.
 
 ## Wiki Context
 
+Wiki APIs are extension APIs under `/api/ext/v1`, not GitHub-compatible
+`/api/v3` endpoints. Use `CLAWMEM_EXT_BASE_URL`.
+
 Search wiki pages after direct issue recall:
 
 ```sh
-GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
-  gh api -X GET "repos/$CLAWMEM_REPO/wiki/search" \
-    -f q="<short query>" \
-    -f limit=3
+curl -sfG \
+  -H "Authorization: token $CLAWMEM_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  --data-urlencode "q=<short query>" \
+  --data-urlencode "limit=3" \
+  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/search"
 ```
 
 Fetch a page:
@@ -137,9 +143,11 @@ Fetch a page:
 slug="<wiki-slug>"
 encoded_slug="$(jq -rn --arg s "$slug" '$s|@uri')"
 
-GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
-  gh api "repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug" \
-    --jq '{slug,title,body,sha}'
+curl -sf \
+  -H "Authorization: token $CLAWMEM_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug" |
+  jq '{slug,title,body,sha}'
 ```
 
 Create or update wiki only after the referenced memory issue exists. Include
@@ -149,15 +157,19 @@ Create a page:
 
 ```sh
 slug="projects/example"
+encoded_slug="$(jq -rn --arg s "$slug" '$s|@uri')"
 body_file="$(mktemp)"
 
 # Edit "$body_file" with the full desired wiki body.
 
-GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
-  gh api -X POST "repos/$CLAWMEM_REPO/wiki/pages" \
-    -f slug="$slug" \
-    -f title="$slug" \
-    -f body="$(cat "$body_file")"
+curl -sf -X PUT \
+  -H "Authorization: token $CLAWMEM_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  -H "Content-Type: application/json" \
+  --data "$(jq -n --rawfile body "$body_file" \
+    --arg message "Create wiki context: $slug" \
+    '{body:$body,message:$message}')" \
+  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug"
 ```
 
 Update a page:
@@ -165,18 +177,24 @@ Update a page:
 ```sh
 slug="projects/example"
 encoded_slug="$(jq -rn --arg s "$slug" '$s|@uri')"
-current="$(GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
-  gh api "repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug")"
+current="$(curl -sf \
+  -H "Authorization: token $CLAWMEM_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug")"
 sha="$(printf '%s' "$current" | jq -r '.sha')"
 body_file="$(mktemp)"
 
 # Edit "$body_file" with the full desired wiki body.
 
-GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
-  gh api -X PUT "repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug" \
-    -f title="$slug" \
-    -f body="$(cat "$body_file")" \
-    -f sha="$sha"
+curl -sf -X PUT \
+  -H "Authorization: token $CLAWMEM_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  -H "Content-Type: application/json" \
+  --data "$(jq -n --rawfile body "$body_file" \
+    --arg message "Update wiki context: $slug" \
+    --arg sha "$sha" \
+    '{body:$body,message:$message,sha:$sha}')" \
+  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug"
 ```
 
 If the update reports a SHA conflict, fetch the latest page, re-apply the

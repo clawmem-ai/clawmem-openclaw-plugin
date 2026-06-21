@@ -97,6 +97,24 @@ function testAutoRecallPlannerVariantLimitDefaultsAndClamps(): void {
   assert(high.memoryAutoRecallPlannerVariantLimit === 6, "expected planner variant limit to clamp high values");
 }
 
+function testExtensionBaseUrlNormalizesToGitHubApiBase(): void {
+  const config = resolvePluginConfig({
+    pluginConfig: {
+      baseUrl: "https://git.clawmem.ai/api/ext/v1",
+      agents: {
+        main: {
+          baseUrl: "https://staging.clawmem.ai/api/ext/v1",
+          token: "agent-token",
+          defaultRepo: "main/private-memory",
+        },
+      },
+    },
+  } as never);
+  const route = resolveAgentRoute(config, "main");
+  assert(config.baseUrl === "https://git.clawmem.ai/api/v3", "expected top-level extension baseUrl to normalize to GitHub API base");
+  assert(route.baseUrl === "https://staging.clawmem.ai/api/v3", "expected agent extension baseUrl to normalize to GitHub API base");
+}
+
 testDefaultRepoResolution();
 testRepoOverride();
 testIdentityOnlyStillConfigured();
@@ -106,5 +124,6 @@ testBootstrapRegistrationTrimsLongPrefixes();
 testAutoRecallStrategyDefaultsToQueryPlanner();
 testAutoRecallStrategyPreservesLegacyValues();
 testAutoRecallPlannerVariantLimitDefaultsAndClamps();
+testExtensionBaseUrlNormalizesToGitHubApiBase();
 
 console.log("config tests passed");

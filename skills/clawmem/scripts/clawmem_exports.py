@@ -9,9 +9,15 @@ import sys
 
 def normalize_base_url(raw: str) -> str:
     value = (raw or "https://git.clawmem.ai/api/v3").rstrip("/")
-    if not value.endswith("/api/v3"):
+    if value.endswith("/api/ext/v1"):
+        value = value.removesuffix("/api/ext/v1") + "/api/v3"
+    elif not value.endswith("/api/v3"):
         value = f"{value}/api/v3"
     return value
+
+
+def extension_base_url(base_url: str) -> str:
+    return base_url.removesuffix("/api/v3") + "/api/ext/v1"
 
 
 def main() -> int:
@@ -31,6 +37,7 @@ def main() -> int:
     route = agents.get(agent_id) or {}
 
     base_url = normalize_base_url(route.get("baseUrl") or cfg.get("baseUrl") or "")
+    ext_base_url = extension_base_url(base_url)
     default_repo = route.get("defaultRepo") or ""
     repo = repo_override or default_repo
     token = route.get("token") or ""
@@ -39,6 +46,7 @@ def main() -> int:
     pairs = {
         "CLAWMEM_AGENT_ID": agent_id,
         "CLAWMEM_BASE_URL": base_url,
+        "CLAWMEM_EXT_BASE_URL": ext_base_url,
         "CLAWMEM_HOST": host,
         "CLAWMEM_DEFAULT_REPO": default_repo,
         "CLAWMEM_REPO": repo,

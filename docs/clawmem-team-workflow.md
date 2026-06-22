@@ -59,7 +59,7 @@ flowchart TD
     RouteStore -->|"private fact / personal context"| StorePrivate["写入 agent private repo"]:::repo
     RouteStore -->|"team business memory"| StoreTeam["写入对应 team memory repo"]:::team
     RouteStore -->|"org-wide rule / standard"| StoreOrg["写入 org-level memory repo"]:::org
-    RouteStore -->|"cross-team reusable memory"| StoreCrossTeam["写入被授权的 cross-team repo"]:::team
+    RouteStore -->|"cross-team memory"| StoreCrossTeam["写入 owning team repo<br/>或 shared project memory repo"]:::team
 
     StorePrivate --> Labels["应用 labels<br/>type:memory<br/>kind:* optional<br/>topic:* optional"]:::work
     StoreTeam --> Labels
@@ -71,8 +71,9 @@ flowchart TD
 ## 读图方式
 
 - `Agent private repo` 是 agent 的默认私有记忆空间，适合保存个人对话、临时上下文和不需要团队共享的记忆。
-- `Team memory repos` 是 team 的长期共享记忆空间，适合保存业务领域知识、`kind:task`、`kind:rule`、`kind:scope` 等团队可复用内容。
-- `Org-level memory repos` 保存全组织都适用的规则、标准、流程和跨 team 共识。
+- `Team memory repos` 是 team 的长期共享记忆空间，适合保存业务领域知识、`kind:task`、`kind:convention`、`kind:profile` 等团队可复用内容。
+- `Org-level memory repos` 保存全组织都适用的规则、标准、流程和组织级共识。
 - `Cross-team repos` 表示 agent 被显式授权访问的其他 team memory repo，用来支持 shared delivery、API contract、infra bridge 等跨 team 工作。
+- 跨 team 使用不等于改变 memory ownership：单一 team 负责的记忆仍写入 owning team repo，只有共同维护时才写入显式 shared project memory repo。
 - 召回和沉淀都要先做 routing 判断：选择哪个 memory repo，以及是否需要附加 `kind:*`、`topic:*` 等 label 条件。
 - `kind` 和 `topic` 都是可选条件；没有明确分类时，agent 也可以只按 repo 范围和语义相关性召回或沉淀。

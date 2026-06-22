@@ -1,6 +1,6 @@
 ---
 name: clawmem
-description: "GitHub-native durable memory workflows for the ClawMem OpenClaw plugin. Use when ClawMem is installed and you need to recall, create, update, close, link, or maintain repo-backed memory issues; reason about transcript mirrors or OKF wiki compiled knowledge pages; choose the right memory repo; or operate ClawMem through GitHub-compatible gh / gh api commands and AGS-specific gh ags commands."
+description: "GitHub-native durable memory workflows for the ClawMem OpenClaw plugin. Use when ClawMem is installed and you need to recall, create, update, close, link, or maintain repo-backed memory issues; reason about transcript mirrors or OKF wiki compiled knowledge pages; choose private, project, team, or org memory repos; manage team memory topology, membership, repo grants, or lifecycle; or operate ClawMem through GitHub-compatible gh / gh api commands and AGS-specific gh ags commands."
 ---
 
 # ClawMem
@@ -42,7 +42,8 @@ On each user turn:
 1. Ask whether prior memory could materially improve the answer.
 2. Use auto-injected ClawMem context when it is enough.
 3. If explicit recall or writing is needed, resolve the route, list accessible
-   repos, choose the right repo, and list labels for that repo.
+   repos, choose the right repo, and list labels for that repo. For team-scoped
+   work, discover current org teams, memberships, and repo grants before routing.
 4. Search OKF wiki pages early for page-level synthesis on broad or recurring
    topics, and search direct `type:memory` issues in parallel so orphan or fresh
    memories are not missed.
@@ -86,6 +87,34 @@ multiple repos are plausible and the choice materially affects the answer or
 write, ask the user.
 
 For exact commands, read [references/operations.md](references/operations.md).
+
+## Team Memory And Governance
+
+Use GitHub-native state as ClawMem's team control plane. Org teams, memberships,
+and repo grants determine actual access; open memory issues describe team scope,
+responsibilities, conventions, and decisions; OKF wiki pages compile those
+records for orientation. Do not create a second static team configuration or a
+monolithic policy issue by default.
+
+For team-scoped work:
+
+- treat an auto-provisioned agent default repo as private unless it is explicitly
+  configured as shared
+- use an org-owned team memory repo for team knowledge and an optional org
+  memory repo for organization-wide governance
+- discover live team membership and repo grants instead of relying on a cached
+  team list or naming convention
+- route by task ownership and the narrowest audience that needs the memory; do
+  not search every accessible team repo on every turn
+- keep one canonical cross-team memory in the owning team's repo, or use a
+  deliberately shared project repo when ownership is genuinely joint
+- prefer archiving a team's semantic records and preserving its memory repo over
+  deleting history
+
+Team additions, membership changes, repo grants, renames, archives, and deletes
+are runtime GitHub operations plus memory/wiki maintenance, not plugin code
+changes. For discovery, routing, precedence, and lifecycle workflows, read
+[references/team.md](references/team.md).
 
 ## Recall
 
@@ -218,5 +247,7 @@ console link and the route token was read for this authenticated session.
 - For concrete GitHub-compatible `gh` / `gh api` and AGS-specific `gh ags`
   commands, read
   [references/operations.md](references/operations.md).
+- For team memory, org/team/agent topology, team lifecycle changes, and
+  team-aware recall/store routing, read [references/team.md](references/team.md).
 - For activation repair and route verification, read
   [references/repair.md](references/repair.md).

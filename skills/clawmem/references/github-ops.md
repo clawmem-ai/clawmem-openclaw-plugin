@@ -121,7 +121,7 @@ GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
 Add `-f text_matches=true` only when you need snippets. Large search responses
 can slow down the turn.
 
-## Wiki Context
+## OKF Wiki Knowledge Pages
 
 Wiki APIs are extension APIs under `/api/ext/v1`, not GitHub-compatible
 `/api/v3` endpoints. Use `CLAWMEM_EXT_BASE_URL`.
@@ -150,8 +150,61 @@ curl -sf \
   jq '{slug,title,body,sha}'
 ```
 
-Create or update wiki only after the referenced memory issue exists. Include
-visible issue references in the body.
+Create or update wiki only after the referenced memory issue exists. Wiki pages
+are compiled knowledge pages: they turn scattered source memories into a
+reviewable current view with history, sources, status, update conditions, and
+related concepts. They should follow OKF v0.1 concept-document conventions:
+YAML frontmatter plus structured markdown body. Include visible issue
+references in the body; do not rely on frontmatter-only refs for recall
+boosting.
+
+ClawMem wiki slugs map to OKF-style paths:
+
+- `projects/clawmem` is equivalent to `projects/clawmem.md`
+- `projects/index` is an OKF directory index page
+- `projects/log` is an OKF chronological update log
+
+Recommended concept body:
+
+```markdown
+---
+type: ClawMem Knowledge Page
+title: Project: Example
+description: Current cross-task compiled knowledge for the Example project.
+resource: clawmem://wiki/projects/example
+tags: [project, example]
+timestamp: 2026-06-24T00:00:00Z
+---
+
+# Current State
+
+The compiled current view. Keep this compact and answer-oriented.
+
+# History
+
+- Previous or deprecated states that still explain the current answer.
+
+# Canonical Memories
+
+- #123: Short statement of the memory and why it matters here.
+
+# Status
+
+- active
+- Revisit when the user, project, workflow, owner, or underlying source changes.
+
+# Related
+
+- [Related concept](../topics/example)
+
+# Open Questions
+
+- Unknowns or stale areas to verify before relying on this context.
+
+# Citations
+
+[1] #123
+```
 
 Create a page:
 

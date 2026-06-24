@@ -109,7 +109,7 @@ function testBuildAutoRecallContextWithWikiContext(): void {
   });
 
   assert(context.includes("<clawmem-wiki-contexts>"), "expected wiki context wrapper");
-  assert(context.includes("context maps"), "expected wiki context to be framed as a map");
+  assert(context.includes("compiled OKF wiki knowledge pages"), "expected wiki context to be framed as compiled OKF knowledge");
   assert(context.includes('slug="projects/clawmem"'), "expected wiki slug to be included");
   assert(context.includes("Issue memory is source of truth. refs: #12"), "expected wiki body to be included");
   assert(context.includes("Wiki anchors: projects/clawmem"), "expected memory wiki anchor to be included");
@@ -131,7 +131,7 @@ function testBuildClawMemPromptSection(): void {
   assert(prompt.includes("GitHub-native operations through `gh` or `gh api`"), "expected skill-driven GitHub guidance");
   assert(prompt.includes("Do not look for `memory_store`, `memory_update`, `memory_forget`"), "expected old CRUD tool avoidance");
   assert(prompt.includes("Normal recall is memory-first"), "expected memory-first serving guidance");
-  assert(prompt.includes("Wiki pages, when present, are agent-facing context maps"), "expected wiki context map guidance");
+  assert(prompt.includes("Wiki pages, when present, are agent-facing compiled OKF knowledge pages"), "expected compiled OKF wiki guidance");
   assert(prompt.includes("keep memory text answer-complete with exact values"), "expected answer-complete memory guidance");
   assert(prompt.includes("label discovery"), "expected repo/label discovery to be delegated to the skill");
   assert(prompt.includes("`clawmem_status`, `clawmem_sync`, and `clawmem_maintain`"), "expected operational tool guidance");

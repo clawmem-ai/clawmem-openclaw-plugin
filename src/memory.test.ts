@@ -319,17 +319,24 @@ async function testWikiContextBoostsReferencedMemoryIssues(): Promise<void> {
     ],
     searchWikiPages: async () => [{
       slug: "projects/clawmem",
-      title: "ClawMem",
       score: 10,
       snippet: "Architecture context refs: #99",
     }],
     getWikiPage: async () => ({
       slug: "projects/clawmem",
-      title: "ClawMem",
       body: [
-        "# Project: ClawMem",
+        "---",
+        "type: ClawMem Knowledge Page",
+        "title: Project: ClawMem",
+        "description: Current ClawMem architecture context.",
+        "resource: owner/main-memory#55",
+        "tags: [project, clawmem]",
+        "timestamp: 2026-06-24T00:00:00Z",
+        "---",
         "",
-        "- Wiki is a context map, not memory ground truth. refs: #99",
+        "# Context",
+        "",
+        "- Wiki is compiled knowledge, not memory ground truth. refs: #99",
         "- Conversation refs stay provenance. refs: #77",
         "```",
         "#66 should not count from code.",
@@ -342,7 +349,7 @@ async function testWikiContextBoostsReferencedMemoryIssues(): Promise<void> {
         return markdownMemory({
           issueNumber: 99,
           title: "Memory: wiki architecture",
-          detail: "ClawMem wiki pages are context maps and issue memories are source of truth.",
+          detail: "ClawMem wiki pages are compiled knowledge and issue memories are source of truth.",
           kind: "decision",
         });
       }
@@ -359,7 +366,8 @@ async function testWikiContextBoostsReferencedMemoryIssues(): Promise<void> {
   const bundle = await store.searchWithContext("clawmem architecture wiki", 3);
 
   assert(bundle.wikiContexts.length === 1, "expected relevant wiki context to be returned");
-  assert(JSON.stringify(bundle.wikiContexts[0]?.issueRefs) === JSON.stringify(["#99", "#77"]), "expected wiki refs to ignore code blocks");
+  assert(bundle.wikiContexts[0]?.title === "Project: ClawMem", "expected OKF frontmatter title to be used");
+  assert(JSON.stringify(bundle.wikiContexts[0]?.issueRefs) === JSON.stringify(["#99", "#77"]), "expected wiki refs to ignore frontmatter and code blocks");
   assert(viewed.includes(99), "expected referenced memory issue to be inspected");
   assert(viewed.includes(77), "expected referenced conversation issue to be inspected and filtered out");
   assert(bundle.memories.map((memory) => memory.issueNumber).join(",") === "1,2,99", "expected wiki-referenced memory to enter the limited recall set");

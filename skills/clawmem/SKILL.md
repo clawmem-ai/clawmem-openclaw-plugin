@@ -127,19 +127,11 @@ Choose one write decision:
 - `DELETE`: close a false, stale, superseded, or harmful issue with a reason
 - `NONE`: do not write
 
-Before writing, search for duplicates and conflicts. Prefer one canonical open
-issue per living subject/property when practical. Update canonical set or profile
-memories instead of scattering fragments across many near-duplicate issues.
-
-Write durable information to issue memory first. Promote to OKF wiki only when the
-memory is high-importance, high-frequency, cross-task, current project/user/topic
-background, or useful for fast agent startup.
-
-Use page-first retention for recurring synthesis. Do not leave future agents to
-reconstruct stable answers from scattered fragments every time. If several
-memory issues together establish a current status, causal chain, workflow,
-profile, or long-lived decision, compile or update the OKF wiki page with the
-current view, history, source memories, status, and update conditions.
+Before any issue or wiki write, read [references/schema.md](references/schema.md)
+for the normative formats and [references/github-ops.md](references/github-ops.md)
+for the exact operations. Search for duplicates and conflicts first. Prefer one
+canonical open issue per living subject/property when practical. Update
+canonical set or profile memories instead of scattering near-duplicates.
 
 Use answerable retention. `## Memory` must contain enough visible detail for a
 future agent to search, answer, judge, and maintain the memory without reopening
@@ -160,153 +152,47 @@ lesson, convention, or skill trigger when the signal would change future agent
 behavior. Do not save a play-by-play of the session; the transcript mirror
 already does that.
 
-For full schema, kinds, body format, and temporal rules, read
-[references/schema.md](references/schema.md).
+## Two-Layer Write Decision
 
-## Memory Body
+ClawMem has two authored memory layers. Keep their responsibilities explicit:
 
-Use GitHub Flavored Markdown. Minimal body shape:
+1. Write each new durable fact, preference, decision, task, lesson, profile
+   update, or skill trigger to a canonical open `type:memory` issue first.
+2. Update an OKF wiki page only after the backing issue exists and the page adds
+   reusable synthesis: current state, history, a causal chain, a workflow, a
+   profile, a long-lived decision, or cross-task orientation.
+3. Cite the backing memory issues with visible `#123` or `owner/repo#123`
+   references in the wiki body.
+4. If an open memory issue conflicts with wiki prose, answer from the issue and
+   repair the wiki.
 
-```markdown
-## Memory
+Do not promote every issue. If a page would only repeat one issue, keep the issue
+as the durable record. Do not use conversation mirrors as the normal recall
+layer, and do not treat search indexes as memory; they are provenance and
+rebuildable acceleration layers respectively.
 
-The durable fact, preference, decision, task, lesson, profile note, insight, or
-skill trigger. Include exact values and boundaries needed for future answers.
+## OKF Wiki Write Checklist
 
-## Relations
+When creating or updating a compiled knowledge page:
 
-- Source: #123
-- Supersedes: #88
+- use OKF YAML frontmatter with non-empty `type` and useful `title`,
+  `description`, `resource`, `tags`, and `timestamp`
+- write a compact `# Current State`, then include history, canonical memories,
+  status, related concepts, open questions, and citations when they add value
+- keep backing issue references visible in the markdown body, not only in
+  frontmatter
+- refresh `timestamp`, state the page status, and include an update condition
+  for claims that can go stale
+- link related wiki concepts with stable slug-relative paths
+- compile the useful view instead of copying every source memory
 
-## Notes
+Use `index` / `*/index` for nearby concept listings and `log` / `*/log` for
+chronological maintenance notes. Avoid default `sessions/*` pages because
+conversation issues already preserve episodes.
 
-Optional caveats or review notes.
-
-<!-- clawmem
-schema_version: clawmem/v2
-valid_from: 2026-04-24
-valid_to:
--->
-```
-
-Labels:
-
-- always include `type:memory`
-- choose one `kind:*` when useful
-- use `topic:*` sparingly
-
-Default kinds:
-
-- `kind:fact`
-- `kind:preference`
-- `kind:convention`
-- `kind:decision`
-- `kind:task`
-- `kind:skill`
-- `kind:lesson`
-- `kind:profile`
-- `kind:insight`
-
-Lifecycle is native issue state: open means active; closed means inactive,
-stale, superseded, false, or archived. Put the inactive reason in the closing
-comment.
-
-## OKF Wiki Knowledge Pages
-
-Wiki pages are OKF v0.1-style compiled knowledge pages for agents. They are the
-human- and agent-readable artifact that turns scattered memory issues into
-reviewable pages with current state, history, source references, status, update
-conditions, and links to related concepts.
-
-ClawMem uses four layers:
-
-- raw source: `type:conversation` issues, tool outputs, documents, logs, and
-  other provenance
-- atomic memory: `type:memory` issues that preserve answerable durable facts,
-  preferences, decisions, lessons, tasks, and profile notes
-- compiled knowledge: OKF wiki concept pages that organize related memories into
-  a page another human or agent can read directly
-- index: wiki search, PageIndex, BM25, embeddings, or graph indexes that can be
-  rebuilt from the issues and wiki pages
-
-Do not treat the index as knowledge. Rebuild or discard indexes freely; repair
-issues and OKF pages when the knowledge itself is wrong.
-
-Treat a ClawMem wiki slug like `projects/clawmem` as the OKF concept document
-`projects/clawmem.md`. Each non-index, non-log page should start with YAML
-frontmatter. OKF requires only `type`, and recommends `title`, `description`,
-`resource`, `tags`, and `timestamp`. Use `type: ClawMem Knowledge Page` unless a
-more specific concept type is clearer.
-
-Target Google OKF v0.1 (draft) until the upstream spec changes:
-https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
-
-Recommended page families:
-
-- `users/{user}`
-- `projects/{project}`
-- `topics/{topic}`
-- `decisions/{area}`
-- `workflows/{workflow}`
-
-Avoid default `sessions/*` wiki pages. Conversation issues already mirror raw
-episodes.
-
-Wiki maintenance rules:
-
-- create or update issue memory first
-- update OKF wiki for important, frequently reused, cross-task, or synthesized
-  context
-- compile, do not copy every memory
-- keep visible issue refs in the markdown body; do not rely on frontmatter-only refs
-- if wiki is stale, repair the wiki rather than changing the answer source
-- archive stale page content inside the page or move it to an archive page when
-  history is useful; do not leave outdated current-state claims active
-
-Concept page template:
-
-```markdown
----
-type: ClawMem Knowledge Page
-title: Project: Example
-description: Current cross-task compiled knowledge for the Example project.
-resource: clawmem://wiki/projects/example
-tags: [project, example]
-timestamp: 2026-06-24T00:00:00Z
----
-
-# Current State
-
-The compiled current view. Keep this compact and answer-oriented.
-
-# History
-
-- Previous or deprecated states that still explain the current answer.
-
-# Canonical Memories
-
-- #123: Short statement of the memory and why it matters here.
-
-# Status
-
-- active
-- Revisit when the user, project, workflow, owner, or underlying source changes.
-
-# Related
-
-- [Related concept](../topics/example)
-
-# Open Questions
-
-- Unknowns or stale areas to verify before relying on this context.
-
-# Citations
-
-[1] #123
-```
-
-Use `index` / `projects/index` slugs for OKF index pages that list nearby
-concepts, and `log` / `projects/log` slugs for chronological maintenance notes.
+For the canonical OKF page template and page-family guidance, read
+[references/schema.md](references/schema.md). For wiki search, fetch, create,
+and update commands, read [references/github-ops.md](references/github-ops.md).
 
 ## User Communication
 

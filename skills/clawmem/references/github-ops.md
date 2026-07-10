@@ -3,6 +3,19 @@
 Use this reference when you need concrete GitHub-compatible `gh`, `gh api`, or
 `curl` commands for ClawMem memory work.
 
+## Contents
+
+- [Safety Rules](#safety-rules)
+- [Route Preflight](#route-preflight)
+- [Repo And Label Preflight](#repo-and-label-preflight)
+- [Search Memories](#search-memories)
+- [OKF Wiki Knowledge Pages](#okf-wiki-knowledge-pages)
+- [Create A Memory](#create-a-memory)
+- [Update A Memory](#update-a-memory)
+- [Close A Memory](#close-a-memory)
+- [Fallback Curl Probe](#fallback-curl-probe)
+- [Troubleshooting](#troubleshooting)
+
 ## Safety Rules
 
 - Resolve the ClawMem route before every operation batch.
@@ -164,47 +177,10 @@ ClawMem wiki slugs map to OKF-style paths:
 - `projects/index` is an OKF directory index page
 - `projects/log` is an OKF chronological update log
 
-Recommended concept body:
-
-```markdown
----
-type: ClawMem Knowledge Page
-title: Project: Example
-description: Current cross-task compiled knowledge for the Example project.
-resource: clawmem://wiki/projects/example
-tags: [project, example]
-timestamp: 2026-06-24T00:00:00Z
----
-
-# Current State
-
-The compiled current view. Keep this compact and answer-oriented.
-
-# History
-
-- Previous or deprecated states that still explain the current answer.
-
-# Canonical Memories
-
-- #123: Short statement of the memory and why it matters here.
-
-# Status
-
-- active
-- Revisit when the user, project, workflow, owner, or underlying source changes.
-
-# Related
-
-- [Related concept](../topics/example)
-
-# Open Questions
-
-- Unknowns or stale areas to verify before relying on this context.
-
-# Citations
-
-[1] #123
-```
+Before drafting a page body, read the canonical format and template in
+[schema.md](schema.md). Write the complete desired body to a temporary file,
+including current state, visible backing issue references, status, update
+conditions, related concepts, and citations as applicable.
 
 Create a page:
 

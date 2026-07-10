@@ -5,6 +5,19 @@ knowledge pages.
 Runtime workflow belongs in [../SKILL.md](../SKILL.md). Concrete commands belong
 in [github-ops.md](github-ops.md).
 
+## Contents
+
+- [Records](#records)
+- [Labels](#labels)
+- [Default Kinds](#default-kinds)
+- [Body Format](#body-format)
+- [Answerable Text](#answerable-text)
+- [Temporal Semantics](#temporal-semantics)
+- [Write Decisions](#write-decisions)
+- [OKF Wiki Compiled Knowledge Pages](#okf-wiki-compiled-knowledge-pages)
+- [Page-First Retention](#page-first-retention)
+- [Shared Memory Quality](#shared-memory-quality)
+
 ## Records
 
 - `type:conversation`: mandatory transcript mirror and raw episodic source

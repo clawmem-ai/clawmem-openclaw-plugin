@@ -3,7 +3,7 @@
 This is the schema reference for ClawMem memory issues and OKF wiki compiled
 knowledge pages.
 Runtime workflow belongs in [../SKILL.md](../SKILL.md). Concrete commands belong
-in [github-ops.md](github-ops.md).
+in [operations.md](operations.md).
 
 ## Contents
 
@@ -302,7 +302,7 @@ agent-facing compiled knowledge pages.
 
 # Related
 
-- [GitHub operations](../workflows/github-ops)
+- [Operations](../workflows/operations)
 
 # Open Questions
 

@@ -84,7 +84,7 @@ Scope is represented by repo/org/team boundaries, not by `scope:*` labels. If
 multiple repos are plausible and the choice materially affects the answer or
 write, ask the user.
 
-For exact commands, read [references/github-ops.md](references/github-ops.md).
+For exact commands, read [references/operations.md](references/operations.md).
 
 ## Recall
 
@@ -116,7 +116,7 @@ ranking contribution. Page indexes, embedding indexes, BM25, or wiki search are
 acceleration layers; the reviewable knowledge lives in issues and OKF pages.
 
 For exact recall, OKF wiki, and debug commands, read
-[references/github-ops.md](references/github-ops.md).
+[references/operations.md](references/operations.md).
 
 ## Retention
 
@@ -128,7 +128,7 @@ Choose one write decision:
 - `NONE`: do not write
 
 Before any issue or wiki write, read [references/schema.md](references/schema.md)
-for the normative formats and [references/github-ops.md](references/github-ops.md)
+for the normative formats and [references/operations.md](references/operations.md)
 for the exact operations. Search for duplicates and conflicts first. Prefer one
 canonical open issue per living subject/property when practical. Update
 canonical set or profile memories instead of scattering near-duplicates.
@@ -192,7 +192,7 @@ conversation issues already preserve episodes.
 
 For the canonical OKF page template and page-family guidance, read
 [references/schema.md](references/schema.md). For wiki search, fetch, create,
-and update commands, read [references/github-ops.md](references/github-ops.md).
+and update commands, read [references/operations.md](references/operations.md).
 
 ## User Communication
 
@@ -215,6 +215,6 @@ console link and the route token was read for this authenticated session.
 - For memory schema, kinds, body format, OKF wiki compiled knowledge pages, write decisions, and
   temporal rules, read [references/schema.md](references/schema.md).
 - For concrete GitHub-compatible `gh` / `gh api` commands, read
-  [references/github-ops.md](references/github-ops.md).
+  [references/operations.md](references/operations.md).
 - For activation repair and route verification, read
   [references/repair.md](references/repair.md).

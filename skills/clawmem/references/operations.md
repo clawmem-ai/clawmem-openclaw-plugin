@@ -1,4 +1,4 @@
-# ClawMem GitHub Operations
+# ClawMem Operations
 
 Use this reference when you need concrete GitHub-compatible `gh`, `gh api`, or
 `curl` commands for ClawMem memory work.

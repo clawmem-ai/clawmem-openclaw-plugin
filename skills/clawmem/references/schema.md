@@ -1,8 +1,22 @@
 # ClawMem Memory Schema
 
-This is the schema reference for ClawMem memory issues and wiki context maps.
+This is the schema reference for ClawMem memory issues and OKF wiki compiled
+knowledge pages.
 Runtime workflow belongs in [../SKILL.md](../SKILL.md). Concrete commands belong
-in [github-ops.md](github-ops.md).
+in [operations.md](operations.md).
+
+## Contents
+
+- [Records](#records)
+- [Labels](#labels)
+- [Default Kinds](#default-kinds)
+- [Body Format](#body-format)
+- [Answerable Text](#answerable-text)
+- [Temporal Semantics](#temporal-semantics)
+- [Write Decisions](#write-decisions)
+- [OKF Wiki Compiled Knowledge Pages](#okf-wiki-compiled-knowledge-pages)
+- [Page-First Retention](#page-first-retention)
+- [Shared Memory Quality](#shared-memory-quality)
 
 ## Records
 
@@ -13,8 +27,9 @@ Conversation issues are provenance, audit trail, and rebuild input. They are not
 the normal online recall layer. If a transcript fact should affect future answers
 or behavior, write it into a `type:memory` issue.
 
-Wiki pages are context maps, not memory records. They summarize important current
-context and cite issue memories with visible references.
+Wiki pages are OKF compiled knowledge pages. They summarize important current
+context, explain how fragments fit together, and cite issue memories with
+visible references.
 
 ## Labels
 
@@ -181,9 +196,21 @@ Prefer `UPDATE` over `ADD` when the new information:
 
 Close stale records instead of leaving conflicting open memories active.
 
-## Wiki Context Maps
+## OKF Wiki Compiled Knowledge Pages
 
-Issue memory is ground truth. Wiki is a context map.
+Issue memory is the atomic source of truth. Wiki is the compiled knowledge
+layer. This is the "first make a page, then retrieve" model: do not rely on
+query-time retrieval to repeatedly reassemble stable knowledge from scattered
+chunks.
+
+ClawMem uses four layers:
+
+| Layer | ClawMem form | Role |
+| --- | --- | --- |
+| Raw source | `type:conversation` issues, tool outputs, docs, logs | Immutable or minimally changed provenance |
+| Atomic memory | `type:memory` issues | Answerable durable facts, preferences, decisions, lessons, tasks, and profile notes |
+| Compiled knowledge | OKF wiki concept pages | Reviewable pages that synthesize current state, history, sources, status, and related concepts |
+| Index | wiki search, PageIndex, BM25, embeddings, graph indexes | Rebuildable acceleration layer, never knowledge ground truth |
 
 Use wiki pages for context that is:
 
@@ -204,19 +231,132 @@ Recommended page families:
 Avoid default `sessions/*` wiki pages; conversation issues already mirror raw
 episodes.
 
-Wiki pages should:
+ClawMem wiki pages should follow Google Open Knowledge Format (OKF) v0.1 where
+the GitHub wiki API allows it:
 
-- summarize the current useful view
+- Treat each content page slug as a concept document. Example: slug
+  `projects/clawmem` represents OKF concept `projects/clawmem.md`.
+- Start each concept page with YAML frontmatter delimited by `---`.
+- Include non-empty `type`; use `type: ClawMem Knowledge Page` by default.
+- Prefer `title`, `description`, `resource`, `tags`, and `timestamp` when they
+  make retrieval or review clearer.
+- Put issue references in the markdown body, not only in frontmatter. ClawMem
+  uses visible body refs as recall boost signals.
+- Use standard markdown headings, lists, and tables in the body.
+- Keep `index` / `*/index` pages as OKF directory listings and `log` / `*/log`
+  pages as chronological maintenance notes.
+
+The concept page body should:
+
+- summarize the current useful view, not just list source fragments
 - cite issue memories with visible `#123` or `owner/repo#123` references
 - preserve enough refs for traceability and recall boosting
+- distinguish current state from history or deprecated states
+- include review or update conditions when the claim can go stale
 - avoid unsupported claims
 - avoid copying every memory
 
-Wiki references are relation and ranking signals, not filters. Retrieval must
-search issue memories directly in parallel with wiki search so orphan memories
-remain discoverable.
+Recommended section headings:
+
+- `# Current State`: compact current synthesis for fast orientation
+- `# History`: previous, deprecated, or archived states that explain the current
+  answer
+- `# Canonical Memories`: bullets linking the active memory issues behind the
+  synthesis
+- `# Status`: active/deprecated/archived state and update conditions
+- `# Related`: links to nearby concepts in the wiki
+- `# Open Questions`: stale, missing, or uncertain areas to verify
+- `# Citations`: numbered source links, including memory issues and external
+  sources when claims depend on them
+
+Example concept page:
+
+```markdown
+---
+type: ClawMem Knowledge Page
+title: Project: ClawMem
+description: Current cross-task compiled knowledge for the ClawMem project.
+resource: clawmem://wiki/projects/clawmem
+tags: [project, clawmem]
+timestamp: 2026-06-24T00:00:00Z
+---
+
+# Current State
+
+ClawMem uses GitHub issues as durable memory records and OKF wiki pages as
+agent-facing compiled knowledge pages.
+
+# History
+
+- Pre-OKF wiki pages may still exist and should be migrated when touched.
+
+# Canonical Memories
+
+- #123: Issue memory is the ground truth for atomic durable memories.
+- #124: Wiki pages are compiled knowledge pages and recall boosters.
+
+# Status
+
+- active
+- Revisit when the memory issue schema or wiki API changes.
+
+# Related
+
+- [Operations](../workflows/operations)
+
+# Open Questions
+
+- Confirm whether any pre-OKF wiki pages still need migration.
+
+# Citations
+
+[1] #123
+[2] #124
+```
+
+Example index page:
+
+```markdown
+# Projects
+
+* [ClawMem](clawmem) - Current project-level ClawMem knowledge.
+```
+
+Example log page:
+
+```markdown
+# Project Update Log
+
+## 2026-06-24
+
+* **Update**: Migrated [ClawMem](clawmem) to OKF wiki compiled-knowledge format.
+```
+
+Wiki references are relation and ranking signals, not filters. Retrieval should
+prefer useful OKF pages for orientation but must search issue memories directly
+in parallel so orphan memories remain discoverable.
 
 If wiki conflicts with an open memory issue, trust the issue and update the wiki.
+
+Existing pre-OKF wiki pages may still be consumed as background. When editing
+one, migrate it to OKF frontmatter and body sections instead of preserving the
+old shape.
+
+## Page-First Retention
+
+Create or update an OKF wiki page when a future agent would otherwise need to
+synthesize the same answer from fragments:
+
+- current status that supersedes older memories
+- profile or preference pages that combine several atomic values
+- workflow, runbook, or project pages that link decisions, lessons, and tasks
+- causal explanations where the "why" matters as much as the fact
+- recurring questions where the right answer depends on current/history/source
+  boundaries
+
+Do not promote every issue to wiki. Promote only when the page adds structure:
+current state, history, sources, lifecycle, review condition, or links. If the
+page only repeats one memory issue verbatim, keep the memory issue as the record.
 
 ## Shared Memory Quality
 

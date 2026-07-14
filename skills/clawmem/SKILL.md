@@ -1,6 +1,6 @@
 ---
 name: clawmem
-description: "GitHub-native durable memory workflows for the ClawMem OpenClaw plugin. Use when ClawMem is installed and you need to recall, create, update, close, link, or maintain repo-backed memory issues; reason about transcript mirrors or wiki context maps; choose the right memory repo; or operate ClawMem through GitHub-compatible gh / gh api commands."
+description: "GitHub-native durable memory workflows for the ClawMem OpenClaw plugin. Use when ClawMem is installed and you need to recall, create, update, close, link, or maintain repo-backed memory issues; reason about transcript mirrors or OKF wiki compiled knowledge pages; choose the right memory repo; or operate ClawMem through GitHub-compatible gh / gh api commands."
 ---
 
 # ClawMem
@@ -16,11 +16,13 @@ Use it the way a careful human uses GitHub:
 
 The core rule:
 
-> Issue memory carries atomic durable memory. Wiki pages carry context maps.
+> Issue memory carries atomic durable memory. OKF wiki pages carry compiled,
+> reviewable knowledge.
 
-Wiki context can restore background and boost recall, but it is not memory
-ground truth. When wiki prose conflicts with an open memory issue, trust the
-issue and repair the wiki.
+Wiki context can restore background, explain why facts fit together, and boost
+recall. It is the preferred orientation layer for broad or recurring questions,
+but it is not allowed to override open memory issues. When wiki prose conflicts
+with an open memory issue, trust the issue and repair the wiki.
 
 The plugin intentionally exposes a small tool surface:
 
@@ -40,15 +42,17 @@ On each user turn:
 2. Use auto-injected ClawMem context when it is enough.
 3. If explicit recall or writing is needed, resolve the route, list accessible
    repos, choose the right repo, and list labels for that repo.
-4. Recall direct `type:memory` issues first. Search wiki pages only in parallel
-   as orientation and ranking hints.
-5. Answer from open memory issues when available. Use wiki context as background,
-   not as the sole source of truth.
+4. Search OKF wiki pages early for page-level synthesis on broad or recurring
+   topics, and search direct `type:memory` issues in parallel so orphan or fresh
+   memories are not missed.
+5. Answer from open memory issues and cited OKF page claims when available. Use
+   uncited wiki prose as background, not as the sole source of truth.
 6. After answering, ask whether the turn produced durable local alpha.
 7. If yes, create, update, close, or deliberately skip memory issues through
    GitHub operations.
-8. If an important memory should be fast to recover on future starts, update the
-   relevant wiki context page after the issue memory exists.
+8. If a fact, decision, workflow, or profile should be fast to recover or would
+   otherwise require query-time synthesis from fragments, update the relevant
+   OKF wiki page after the issue memory exists.
 
 Local alpha means knowledge specific to this person, team, repo, project,
 environment, decision, failure, preference, or procedure. Do not store generic
@@ -80,7 +84,7 @@ Scope is represented by repo/org/team boundaries, not by `scope:*` labels. If
 multiple repos are plausible and the choice materially affects the answer or
 write, ask the user.
 
-For exact commands, read [references/github-ops.md](references/github-ops.md).
+For exact commands, read [references/operations.md](references/operations.md).
 
 ## Recall
 
@@ -96,20 +100,23 @@ and rebuild input. If answer-bearing information exists only in a conversation
 issue, repair or create the durable memory issue instead of depending on raw
 transcript recall.
 
-Wiki recall is a booster, not a gate:
+OKF wiki recall is page-first orientation, not a gate:
 
+- use relevant OKF pages to recover current state, history, sources, status,
+  update conditions, and related concepts
 - search issue memories directly even when wiki search is available
-- include relevant wiki pages as compact background context
 - follow visible `#123` / `owner/repo#123` refs to in-scope `type:memory` issues
 - treat wiki-referenced memories as boosted candidates, not the only candidates
-- ignore unsupported wiki prose when it would materially affect the answer
+- verify unsupported wiki prose against memory issues when it would materially
+  affect the answer
 
 For debugging recall quality, use backend search observability with
 `debug=true`. Do not treat snippets or matched fields alone as proof of final
-ranking contribution.
+ranking contribution. Page indexes, embedding indexes, BM25, or wiki search are
+acceleration layers; the reviewable knowledge lives in issues and OKF pages.
 
-For exact recall, wiki, and debug commands, read
-[references/github-ops.md](references/github-ops.md).
+For exact recall, OKF wiki, and debug commands, read
+[references/operations.md](references/operations.md).
 
 ## Retention
 
@@ -120,13 +127,11 @@ Choose one write decision:
 - `DELETE`: close a false, stale, superseded, or harmful issue with a reason
 - `NONE`: do not write
 
-Before writing, search for duplicates and conflicts. Prefer one canonical open
-issue per living subject/property when practical. Update canonical set or profile
-memories instead of scattering fragments across many near-duplicate issues.
-
-Write durable information to issue memory first. Promote to wiki only when the
-memory is high-importance, high-frequency, cross-task, current project/user/topic
-background, or useful for fast agent startup.
+Before any issue or wiki write, read [references/schema.md](references/schema.md)
+for the normative formats and [references/operations.md](references/operations.md)
+for the exact operations. Search for duplicates and conflicts first. Prefer one
+canonical open issue per living subject/property when practical. Update
+canonical set or profile memories instead of scattering near-duplicates.
 
 Use answerable retention. `## Memory` must contain enough visible detail for a
 future agent to search, answer, judge, and maintain the memory without reopening
@@ -147,81 +152,47 @@ lesson, convention, or skill trigger when the signal would change future agent
 behavior. Do not save a play-by-play of the session; the transcript mirror
 already does that.
 
-For full schema, kinds, body format, and temporal rules, read
-[references/schema.md](references/schema.md).
+## Two-Layer Write Decision
 
-## Memory Body
+ClawMem has two authored memory layers. Keep their responsibilities explicit:
 
-Use GitHub Flavored Markdown. Minimal body shape:
+1. Write each new durable fact, preference, decision, task, lesson, profile
+   update, or skill trigger to a canonical open `type:memory` issue first.
+2. Update an OKF wiki page only after the backing issue exists and the page adds
+   reusable synthesis: current state, history, a causal chain, a workflow, a
+   profile, a long-lived decision, or cross-task orientation.
+3. Cite the backing memory issues with visible `#123` or `owner/repo#123`
+   references in the wiki body.
+4. If an open memory issue conflicts with wiki prose, answer from the issue and
+   repair the wiki.
 
-```markdown
-## Memory
+Do not promote every issue. If a page would only repeat one issue, keep the issue
+as the durable record. Do not use conversation mirrors as the normal recall
+layer, and do not treat search indexes as memory; they are provenance and
+rebuildable acceleration layers respectively.
 
-The durable fact, preference, decision, task, lesson, profile note, insight, or
-skill trigger. Include exact values and boundaries needed for future answers.
+## OKF Wiki Write Checklist
 
-## Relations
+When creating or updating a compiled knowledge page:
 
-- Source: #123
-- Supersedes: #88
+- use OKF YAML frontmatter with non-empty `type` and useful `title`,
+  `description`, `resource`, `tags`, and `timestamp`
+- write a compact `# Current State`, then include history, canonical memories,
+  status, related concepts, open questions, and citations when they add value
+- keep backing issue references visible in the markdown body, not only in
+  frontmatter
+- refresh `timestamp`, state the page status, and include an update condition
+  for claims that can go stale
+- link related wiki concepts with stable slug-relative paths
+- compile the useful view instead of copying every source memory
 
-## Notes
+Use `index` / `*/index` for nearby concept listings and `log` / `*/log` for
+chronological maintenance notes. Avoid default `sessions/*` pages because
+conversation issues already preserve episodes.
 
-Optional caveats or review notes.
-
-<!-- clawmem
-schema_version: clawmem/v2
-valid_from: 2026-04-24
-valid_to:
--->
-```
-
-Labels:
-
-- always include `type:memory`
-- choose one `kind:*` when useful
-- use `topic:*` sparingly
-
-Default kinds:
-
-- `kind:fact`
-- `kind:preference`
-- `kind:convention`
-- `kind:decision`
-- `kind:task`
-- `kind:skill`
-- `kind:lesson`
-- `kind:profile`
-- `kind:insight`
-
-Lifecycle is native issue state: open means active; closed means inactive,
-stale, superseded, false, or archived. Put the inactive reason in the closing
-comment.
-
-## Wiki Context
-
-Wiki pages are context maps for agents, not a third memory record layer. They
-should summarize the current useful view and cite issue memories with visible
-references.
-
-Recommended page families:
-
-- `users/{user}`
-- `projects/{project}`
-- `topics/{topic}`
-- `decisions/{area}`
-- `workflows/{workflow}`
-
-Avoid default `sessions/*` wiki pages. Conversation issues already mirror raw
-episodes.
-
-Wiki maintenance rules:
-
-- create or update issue memory first
-- update wiki only for important or frequently reused context
-- summarize, do not copy every memory
-- keep visible issue refs
-- if wiki is stale, repair the wiki rather than changing the answer source
+For the canonical OKF page template and page-family guidance, read
+[references/schema.md](references/schema.md). For wiki search, fetch, create,
+and update commands, read [references/operations.md](references/operations.md).
 
 ## User Communication
 
@@ -241,9 +212,9 @@ console link and the route token was read for this authenticated session.
 
 ## References
 
-- For memory schema, kinds, body format, wiki context maps, write decisions, and
+- For memory schema, kinds, body format, OKF wiki compiled knowledge pages, write decisions, and
   temporal rules, read [references/schema.md](references/schema.md).
 - For concrete GitHub-compatible `gh` / `gh api` commands, read
-  [references/github-ops.md](references/github-ops.md).
+  [references/operations.md](references/operations.md).
 - For activation repair and route verification, read
   [references/repair.md](references/repair.md).

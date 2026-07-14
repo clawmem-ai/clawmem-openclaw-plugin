@@ -423,13 +423,14 @@ function wikiContextFromPage(page: WikiPageResponse, result: WikiSearchResultRes
   const body = typeof page.body === "string" ? page.body.trim() : "";
   const snippet = typeof result.snippet === "string" && result.snippet.trim() ? result.snippet.trim() : undefined;
   if (!body && !snippet) return null;
+  const fullText = body || snippet || "";
+  const frontmatter = parseMarkdownFrontmatter(fullText);
   const title = typeof page.title === "string" && page.title.trim()
     ? page.title.trim()
     : typeof result.title === "string" && result.title.trim()
       ? result.title.trim()
-      : slug;
+      : frontmatter.title?.trim() || slug;
   const score = typeof result.score === "number" && Number.isFinite(result.score) ? result.score : undefined;
-  const fullText = body || snippet || "";
   const issueRefs = extractIssueRefs(fullText, query);
   return {
     slug,
@@ -536,9 +537,15 @@ function localIssueNumbers(refs: string[], repo: string): number[] {
 
 function maskIssueReferenceIgnoredMarkdown(body: string): string {
   return body
+    .replace(/^---\s*\n[\s\S]*?\n---(?:\s*\n|$)/, (match) => " ".repeat(match.length))
     .replace(/<!--[\s\S]*?-->/g, (match) => " ".repeat(match.length))
     .replace(/```[\s\S]*?```/g, (match) => " ".repeat(match.length))
     .replace(/`[^`\n]*`/g, (match) => " ".repeat(match.length));
+}
+
+function parseMarkdownFrontmatter(markdown: string): Record<string, string> {
+  const match = /^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/.exec(markdown.replace(/\r/g, "\n"));
+  return match?.[1] ? parseFlatYaml(match[1]) : {};
 }
 
 function normalizeSearch(v: string): string {

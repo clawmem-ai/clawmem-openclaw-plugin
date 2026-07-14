@@ -1,7 +1,20 @@
-# ClawMem GitHub Operations
+# ClawMem Operations
 
 Use this reference when you need concrete GitHub-compatible `gh`, `gh api`, or
 `curl` commands for ClawMem memory work.
+
+## Contents
+
+- [Safety Rules](#safety-rules)
+- [Route Preflight](#route-preflight)
+- [Repo And Label Preflight](#repo-and-label-preflight)
+- [Search Memories](#search-memories)
+- [OKF Wiki Knowledge Pages](#okf-wiki-knowledge-pages)
+- [Create A Memory](#create-a-memory)
+- [Update A Memory](#update-a-memory)
+- [Close A Memory](#close-a-memory)
+- [Fallback Curl Probe](#fallback-curl-probe)
+- [Troubleshooting](#troubleshooting)
 
 ## Safety Rules
 
@@ -121,7 +134,7 @@ GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
 Add `-f text_matches=true` only when you need snippets. Large search responses
 can slow down the turn.
 
-## Wiki Context
+## OKF Wiki Knowledge Pages
 
 Wiki APIs are extension APIs under `/api/ext/v1`, not GitHub-compatible
 `/api/v3` endpoints. Use `CLAWMEM_EXT_BASE_URL`.
@@ -150,8 +163,24 @@ curl -sf \
   jq '{slug,title,body,sha}'
 ```
 
-Create or update wiki only after the referenced memory issue exists. Include
-visible issue references in the body.
+Create or update wiki only after the referenced memory issue exists. Wiki pages
+are compiled knowledge pages: they turn scattered source memories into a
+reviewable current view with history, sources, status, update conditions, and
+related concepts. They should follow OKF v0.1 concept-document conventions:
+YAML frontmatter plus structured markdown body. Include visible issue
+references in the body; do not rely on frontmatter-only refs for recall
+boosting.
+
+ClawMem wiki slugs map to OKF-style paths:
+
+- `projects/clawmem` is equivalent to `projects/clawmem.md`
+- `projects/index` is an OKF directory index page
+- `projects/log` is an OKF chronological update log
+
+Before drafting a page body, read the canonical format and template in
+[schema.md](schema.md). Write the complete desired body to a temporary file,
+including current state, visible backing issue references, status, update
+conditions, related concepts, and citations as applicable.
 
 Create a page:
 

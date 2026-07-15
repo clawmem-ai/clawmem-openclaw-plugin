@@ -1,7 +1,7 @@
 # ClawMem Operations
 
-Use this reference when you need concrete GitHub-compatible `gh`, `gh api`, or
-`curl` commands for ClawMem memory work.
+Use this reference when you need concrete GitHub-compatible `gh` / `gh api`
+commands or AGS-specific `gh ags` commands for ClawMem memory work.
 
 ## Contents
 
@@ -54,6 +54,21 @@ Use this prefix for `gh` commands:
 GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
   gh api user
 ```
+
+AGS Wiki operations require the `gh-ags` extension. Install it once, or upgrade
+an existing installation before relying on its command contract:
+
+```sh
+gh extension install ngaut/gh-ags
+# Existing installation:
+gh extension upgrade ags
+```
+
+`gh-ags` uses standard GitHub CLI authentication. Pass the provisioned host and
+token through the same per-command environment variables used by `gh`; it has
+no separate `--token` flag or credential store. `GH_HOST` also supplies the
+target host when `--repo` is in `OWNER/REPO` form, so do not repeat it with
+`--hostname`.
 
 ## Repo And Label Preflight
 
@@ -137,29 +152,31 @@ can slow down the turn.
 ## OKF Wiki Knowledge Pages
 
 Wiki APIs are extension APIs under `/api/ext/v1`, not GitHub-compatible
-`/api/v3` endpoints. Use `CLAWMEM_EXT_BASE_URL`.
+`/api/v3` endpoints. Use `gh ags wiki` for them. Successful operations return
+one JSON object on stdout, which can be consumed directly or filtered with
+`jq`.
 
 Search wiki pages after direct issue recall:
 
 ```sh
-curl -sfG \
-  -H "Authorization: token $CLAWMEM_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  --data-urlencode "q=<short query>" \
-  --data-urlencode "limit=3" \
-  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/search"
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh ags wiki search "<short query>" \
+    --repo "$CLAWMEM_REPO" --limit 3
 ```
+
+`--limit` accepts any positive integer and `gh-ags` automatically fetches
+additional API pages when needed. Keep the initial recall limit small unless
+the task needs a broader result set, since every additional page adds latency
+and response volume.
 
 Fetch a page:
 
 ```sh
 slug="<wiki-slug>"
-encoded_slug="$(jq -rn --arg s "$slug" '$s|@uri')"
 
-curl -sf \
-  -H "Authorization: token $CLAWMEM_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug" |
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh ags wiki get "$slug" \
+    --repo "$CLAWMEM_REPO" |
   jq '{slug,title,body,sha}'
 ```
 
@@ -186,48 +203,43 @@ Create a page:
 
 ```sh
 slug="projects/example"
-encoded_slug="$(jq -rn --arg s "$slug" '$s|@uri')"
 body_file="$(mktemp)"
 
 # Edit "$body_file" with the full desired wiki body.
 
-curl -sf -X PUT \
-  -H "Authorization: token $CLAWMEM_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  -H "Content-Type: application/json" \
-  --data "$(jq -n --rawfile body "$body_file" \
-    --arg message "Create wiki context: $slug" \
-    '{body:$body,message:$message}')" \
-  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug"
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh ags wiki put "$slug" \
+    --repo "$CLAWMEM_REPO" \
+    --body-file "$body_file" \
+    --message "Create wiki knowledge page: $slug"
 ```
 
 Update a page:
 
 ```sh
 slug="projects/example"
-encoded_slug="$(jq -rn --arg s "$slug" '$s|@uri')"
-current="$(curl -sf \
-  -H "Authorization: token $CLAWMEM_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug")"
+current="$(
+  GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+    gh ags wiki get "$slug" \
+      --repo "$CLAWMEM_REPO"
+)"
 sha="$(printf '%s' "$current" | jq -r '.sha')"
 body_file="$(mktemp)"
 
 # Edit "$body_file" with the full desired wiki body.
 
-curl -sf -X PUT \
-  -H "Authorization: token $CLAWMEM_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  -H "Content-Type: application/json" \
-  --data "$(jq -n --rawfile body "$body_file" \
-    --arg message "Update wiki context: $slug" \
-    --arg sha "$sha" \
-    '{body:$body,message:$message,sha:$sha}')" \
-  "$CLAWMEM_EXT_BASE_URL/repos/$CLAWMEM_REPO/wiki/pages/$encoded_slug"
+GH_HOST="$CLAWMEM_HOST" GH_ENTERPRISE_TOKEN="$CLAWMEM_TOKEN" \
+  gh ags wiki put "$slug" \
+    --repo "$CLAWMEM_REPO" \
+    --body-file "$body_file" \
+    --message "Update wiki knowledge page: $slug" \
+    --sha "$sha"
 ```
 
-If the update reports a SHA conflict, fetch the latest page, re-apply the
-intended change, and retry with the new SHA.
+If the update exits with status `6`, fetch the latest page, re-apply the
+intended change, and retry with the new SHA. `put` is never retried
+automatically. If its structured error sets `outcome_unknown` to `true`, fetch
+the page before deciding whether another write is safe.
 
 ## Create A Memory
 

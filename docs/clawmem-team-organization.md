@@ -34,10 +34,10 @@ flowchart LR
 
         subgraph TeamLayer["ClawMem Teams"]
             direction TB
-            ClusterTeam["cluster-service team<br/>team clawmem repo<br/>- rules memory<br/>- scope memory"]:::team
-            DataflowTeam["dataflow team<br/>team clawmem repo<br/>- rules memory<br/>- scope memory"]:::team
-            FrontendTeam["frontend team<br/>team clawmem repo<br/>- rules memory<br/>- scope memory"]:::team
-            StorageTeam["storage team<br/>team clawmem repo<br/>- rules memory<br/>- scope memory"]:::team
+            ClusterTeam["cluster-service team<br/>team clawmem repo<br/>- kind:convention<br/>- kind:profile"]:::team
+            DataflowTeam["dataflow team<br/>team clawmem repo<br/>- kind:convention<br/>- kind:profile"]:::team
+            FrontendTeam["frontend team<br/>team clawmem repo<br/>- kind:convention<br/>- kind:profile"]:::team
+            StorageTeam["storage team<br/>team clawmem repo<br/>- kind:convention<br/>- kind:profile"]:::team
         end
     end
 
@@ -87,10 +87,10 @@ flowchart LR
     ClusterTeam -. "shared repo" .-> SharedCD
     DataflowTeam -. "shared repo" .-> SharedCD
 
-    ClusterTeam -->|"跨团队可复用记忆上收"| OrgRepos
-    DataflowTeam -->|"跨团队可复用记忆上收"| OrgRepos
-    FrontendTeam -->|"跨团队可复用记忆上收"| OrgRepos
-    StorageTeam -->|"跨团队可复用记忆上收"| OrgRepos
+    ClusterTeam -->|"组织级适用记忆上收"| OrgRepos
+    DataflowTeam -->|"组织级适用记忆上收"| OrgRepos
+    FrontendTeam -->|"组织级适用记忆上收"| OrgRepos
+    StorageTeam -->|"组织级适用记忆上收"| OrgRepos
 
     OrgRepos -. "组织级规则下发 / 全局适用" .-> ClusterTeam
     OrgRepos -. "组织级规则下发 / 全局适用" .-> DataflowTeam
@@ -100,13 +100,12 @@ flowchart LR
 
 ## 图示说明
 
-- 每个 `team clawmem repo` 都承载团队级长期记忆，至少包含两类内容：`rules memory` 和 `scope memory`。
-- `rules memory` 用来记录团队内的 agent 职责、路由规则、ownership 等约定。
-- `scope memory` 用来标记该团队负责的业务领域、服务边界、系统范围等知识。
+- 每个 `team clawmem repo` 都承载团队级长期记忆：用 `kind:convention` 记录路由、ownership 和工作约定，用 `kind:profile` 记录团队职责、成员角色、业务领域和服务边界。
 - 每个 agent 保留自己的 `private repo`，优先存储私有对话、临时上下文和个人工作记忆，只有在需要共享时才向 team repo 沉淀。
 - 图里的实线表示 `primary` 主归属，虚线表示 `cross-team` 共享职责，所以部分 agent 会同时服务多个 team。
 - `aws-shared-cd` 被单独画为共享仓，因为它同时服务于 `cluster-service team` 和 `dataflow team`。
 - `org-level clawmem repos` 用于沉淀整个组织范围都需要遵循或复用的记忆，而不是某一个 team 独有的业务记忆。
+- 跨 team 使用但仍由单一 team 维护的记忆保留在 owning team repo；只有真正组织级适用的记忆才上收到 org repo，共同 ownership 则使用显式 shared project memory repo。
 
 ## 10 个 agent 的 team / cross-team 分工建议
 

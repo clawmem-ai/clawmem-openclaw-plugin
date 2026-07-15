@@ -24,6 +24,7 @@ After restart, confirm OpenClaw shows ClawMem as the active memory plugin. On fi
 
 The package now also ships a bundled `clawmem` skill for runtime memory behavior:
 - GitHub-native recall and retention workflow
+- GitHub-native team memory routing, governance, and lifecycle guidance
 - post-install repair and verification guidance
 - memory schema and OKF wiki compiled-knowledge rules
 - concrete GitHub-compatible `gh` / `gh api` operations
@@ -76,6 +77,7 @@ That bundled skill covers:
 - recall and save behavior
 - schema discipline and answerable retention
 - repo-scoped shared-memory routing
+- live org/team membership and repo-grant aware team workflows
 - repair and verification guidance
 - raw `gh` / `gh api` / `curl` flows
 

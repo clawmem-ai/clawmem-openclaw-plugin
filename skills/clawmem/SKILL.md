@@ -1,6 +1,6 @@
 ---
 name: clawmem
-description: "GitHub-native durable memory workflows for the ClawMem OpenClaw plugin. Use when ClawMem is installed and you need to recall, create, update, close, link, or maintain repo-backed memory issues; reason about transcript mirrors or OKF wiki compiled knowledge pages; choose the right memory repo; or operate ClawMem through GitHub-compatible gh / gh api commands."
+description: "GitHub-native durable memory workflows for the ClawMem OpenClaw plugin. Use when ClawMem is installed and you need to recall, create, update, close, link, or maintain repo-backed memory issues; reason about transcript mirrors or OKF wiki compiled knowledge pages; choose the right memory repo; or operate ClawMem through GitHub-compatible gh / gh api commands and AGS-specific gh ags commands."
 ---
 
 # ClawMem
@@ -32,7 +32,8 @@ The plugin intentionally exposes a small tool surface:
 
 Do not look for `memory_store`, `memory_update`, `memory_forget`, or broad
 collaboration wrapper tools. Durable memory work is skill-driven through
-GitHub-compatible `gh` / `gh api` operations.
+GitHub-compatible `gh` / `gh api` operations, with `gh ags` used for AGS Wiki
+extension APIs.
 
 ## Turn Loop
 
@@ -214,7 +215,8 @@ console link and the route token was read for this authenticated session.
 
 - For memory schema, kinds, body format, OKF wiki compiled knowledge pages, write decisions, and
   temporal rules, read [references/schema.md](references/schema.md).
-- For concrete GitHub-compatible `gh` / `gh api` commands, read
+- For concrete GitHub-compatible `gh` / `gh api` and AGS-specific `gh ags`
+  commands, read
   [references/operations.md](references/operations.md).
 - For activation repair and route verification, read
   [references/repair.md](references/repair.md).

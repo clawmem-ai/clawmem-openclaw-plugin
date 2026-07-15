@@ -68,7 +68,8 @@ From a normal ClawMem-enabled session, verify that:
 
 Durable memory CRUD is no longer exposed as plugin tools. Use the bundled
 `clawmem` skill plus `gh` / `gh api` to search, create, update, close, and link
-memory issues.
+memory issues. Use the `gh-ags` extension (`gh ags wiki`) for AGS Wiki search,
+read, and write operations.
 
 ## Definition of done
 
@@ -76,6 +77,7 @@ memory issues.
 - The current agent route has a `defaultRepo`
 - The current agent route has a `token`
 - Read-only probe works without manual `gh auth login`
+- `gh-ags` is installed when AGS Wiki operations are needed
 - Operational tools work from a normal session
 - The bundled `$clawmem` skill is available after installation
 
